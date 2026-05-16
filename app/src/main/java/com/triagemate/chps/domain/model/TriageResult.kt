@@ -13,5 +13,9 @@ data class TriageResult(
     val photoUri: Uri? = null,
     val vitalSigns: Map<String, String> = emptyMap(),
     val toolCallLog: List<ToolCallRecord> = emptyList(),
-    val rawJson: String? = null
+    val rawJson: String? = null,
+    val confidence: ConfidenceLevel = ConfidenceLevel.HIGH,
+    val safetyOverrideApplied: Boolean = false,
+    val safetyOverrideReason: String? = null,
+    val originalGemmaUrgency: String? = null
 )

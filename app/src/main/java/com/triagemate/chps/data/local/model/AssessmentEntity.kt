@@ -49,5 +49,13 @@ data class AssessmentEntity(
     @ColumnInfo(name = "synced_at")
     val syncedAt: Long? = null,
     @ColumnInfo(name = "compound_id")
-    val compoundId: String = ""
+    val compoundId: String = "",
+    @ColumnInfo(name = "safety_override_applied", defaultValue = "0")
+    val safetyOverrideApplied: Boolean = false,
+    @ColumnInfo(name = "safety_override_reason")
+    val safetyOverrideReason: String? = null,
+    @ColumnInfo(name = "original_gemma_urgency")
+    val originalGemmaUrgency: String? = null,
+    @ColumnInfo(name = "confidence_level", defaultValue = "HIGH")
+    val confidenceLevel: String = "HIGH"
 )

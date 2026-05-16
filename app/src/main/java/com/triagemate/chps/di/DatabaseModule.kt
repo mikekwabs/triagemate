@@ -52,6 +52,7 @@ object DatabaseModule {
             .addMigrations(MIGRATION_3_4)
             .addMigrations(MIGRATION_4_5)
             .addMigrations(MIGRATION_5_6)
+            .addMigrations(TriageMateDatabase.MIGRATION_6_7)
             .fallbackToDestructiveMigration(false)
             .build()
     }

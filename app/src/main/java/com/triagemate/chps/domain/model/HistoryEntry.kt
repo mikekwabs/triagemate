@@ -10,5 +10,6 @@ data class HistoryEntry(
     val patientAge: String,
     val symptoms: List<String>,
     val urgency: String,
-    val timestamp: Long
+    val timestamp: Long,
+    val safetyOverrideApplied: Boolean = false
 )

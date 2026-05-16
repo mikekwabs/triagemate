@@ -2,7 +2,9 @@ package com.triagemate.chps.util
 
 import com.triagemate.chps.domain.model.Pathway
 import com.triagemate.chps.domain.model.TriageInput
+import com.triagemate.chps.domain.model.TriageResult
 import com.triagemate.chps.domain.model.FindingType
+import com.triagemate.chps.domain.safety.SafetyOverrideResult
 
 object PromptBuilder {
 
@@ -156,6 +158,113 @@ object PromptBuilder {
             Current medications: ${input.medications.ifBlank { "None reported" }}
             $visualSection
             Please assess using the clinical tools.
+        """.trimIndent()
+    }
+
+    /**
+     * System prompt for the short-lived "Learn about this case" conversation.
+     * Lives in its own conversation so it never pollutes the agentic triage loop.
+     */
+    fun buildExplanationSystemPrompt(): String = """
+        You are TriageMate Educator, an on-device clinical tutor for Ghana
+        Community Health Officers. A triage assessment has just been completed
+        for a patient. The urgency, recommended action, and referral note are
+        ALREADY FINAL — you cannot and must not change them.
+
+        Your only job is to help the CHO understand the finished case.
+
+        You have one tool: generateClinicalExplanation. You MUST call it
+        exactly once. Never respond with plain text. Never call any other tool.
+
+        Style:
+        - Plain, practical English for a CHO working in a CHPS compound
+        - Reference the specific symptoms, danger signs, vitals, or visual
+          findings that drove the decision — do not speak in generalities
+        - Be honest about uncertainty; this is teaching, not justification
+        - Cite a real clinical source: WHO IMCI, Ghana Health Service Antenatal
+          Care Guidelines, or the relevant danger-sign chapter
+        - If the safety guardrail overrode the model's original classification,
+          explain that the override happened because a WHO danger sign was
+          present and acknowledge it honestly in whyThisClassification
+    """.trimIndent()
+
+    /**
+     * User-turn prompt that hands the completed [TriageResult] (plus the
+     * original [TriageInput] and any safety override) to the educator
+     * conversation as context for [generateClinicalExplanation].
+     */
+    fun buildExplanationPrompt(
+        result: TriageResult,
+        input: TriageInput,
+        safetyOverride: SafetyOverrideResult?
+    ): String {
+        val pathway = input.pathway.name
+        val ageUnit = if (input.pathway == Pathway.CHILD_U5) "months" else "weeks gestation"
+        val ageDisplay = if (input.patientAge.isNotEmpty()) "${input.patientAge} $ageUnit" else "Not specified"
+        val sexDisplay = if (input.pathway == Pathway.ANTENATAL) "Female"
+                         else input.patientSex.ifEmpty { "Not specified" }
+
+        val symptomsLine = input.symptoms.joinToString(", ").ifBlank { "None recorded" }
+        val dangerLine = result.dangerSignsDetected.joinToString(", ").ifBlank { "None recorded" }
+        val vitalsLine = if (result.vitalSigns.isEmpty()) "Not collected"
+                         else result.vitalSigns.entries.joinToString(", ") { "${it.key}: ${it.value}" }
+        val visualLine = result.confirmedVisualFinding?.let {
+            "${it.findingText} (clinical implication: ${it.clinicalImplication})"
+        } ?: result.visualFinding ?: "No visual assessment recorded"
+
+        val overrideLine = if (safetyOverride?.wasOverridden == true) {
+            "Safety guardrail OVERRODE the model. Model originally said " +
+                "${safetyOverride.originalGemmaUrgency}; the app forced ${safetyOverride.finalUrgency} " +
+                "because of: ${safetyOverride.overriddenSigns.joinToString(", ")}. " +
+                "Acknowledge this honestly in whyThisClassification."
+        } else {
+            "No safety override was applied."
+        }
+
+        return """
+            Completed triage case:
+            Pathway: $pathway
+            Patient: $sexDisplay, $ageDisplay
+            Reported symptoms: $symptomsLine
+            Confirmed danger signs: $dangerLine
+            Vital signs: $vitalsLine
+            Visual finding: $visualLine
+            Final urgency: ${result.urgency}
+            Recommended action: ${result.action}
+            $overrideLine
+
+            Call generateClinicalExplanation with:
+            - whyThisClassification: 2 to 4 sentences explaining why this case is
+              ${result.urgency}, grounded in the specific findings above.
+            - whatToWatchFor: 2 to 4 sentences on early-warning signs of
+              deterioration the CHO should monitor during transport or follow-up.
+            - clinicalReference: a short phrase naming the specific guideline
+              (e.g. "WHO IMCI 2014 — danger signs chapter").
+        """.trimIndent()
+    }
+
+    /**
+     * System prompt for the short-lived voice-input conversation. The model
+     * receives raw Twi audio plus the canonical symptom checklist and must
+     * reply with a single [extractSymptoms] tool call.
+     */
+    fun buildVoiceSystemPrompt(): String = """
+        You are a Twi-to-English translator for a Ghana Community Health
+        Officer's clinical assistant. You will be given a short audio clip
+        of someone speaking Twi (Akan) about a sick patient.
+
+        Listen carefully and reply with ONLY the faithful English translation
+        of what was said. No commentary, no labels, no quotes, no JSON, no
+        bullet points. Just the translated sentence(s).
+
+        If the audio is unclear or silent, reply with a single line:
+        UNCLEAR
+    """.trimIndent()
+
+    fun buildVoicePrompt(pathway: Pathway, canonicalSymptoms: List<String>): String {
+        return """
+            Listen to the attached audio (Twi). Translate it into English and
+            respond with only the translation.
         """.trimIndent()
     }
 

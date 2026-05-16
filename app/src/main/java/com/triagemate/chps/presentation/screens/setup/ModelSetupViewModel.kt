@@ -1,5 +1,6 @@
 package com.triagemate.chps.presentation.screens.setup
 
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.triagemate.chps.data.engine.EngineProvider
@@ -9,6 +10,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -22,28 +24,37 @@ class ModelSetupViewModel @Inject constructor(
 
     val downloadState: StateFlow<DownloadState> = modelDownloadRepository
         .getDownloadState()
+        .onEach { state -> Log.d(TAG, "downloadState → $state") }
         .stateIn(
             scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(5000),
+            started = SharingStarted.Eagerly,
             initialValue = DownloadState.Idle
         )
 
     fun startDownload() {
+        Log.i(TAG, "startDownload called")
         modelDownloadRepository.startDownload()
     }
 
     fun cancelDownload() {
+        Log.i(TAG, "cancelDownload called")
         modelDownloadRepository.cancelDownload()
     }
 
-    /**
-     * Called when download is confirmed complete.
-     * Builds the Engine in the background, then invokes [onReady] on the main thread.
-     */
     fun onDownloadComplete(onReady: () -> Unit) {
         viewModelScope.launch {
-            engineProvider.ensureEngineReady()
+            Log.i(TAG, "onDownloadComplete: loading engine…")
+            try {
+                engineProvider.ensureEngineReady()
+                Log.i(TAG, "onDownloadComplete: engine ready")
+            } catch (e: Exception) {
+                Log.e(TAG, "onDownloadComplete: engine load failed", e)
+            }
             onReady()
         }
+    }
+
+    companion object {
+        private const val TAG = "ModelSetupVM"
     }
 }

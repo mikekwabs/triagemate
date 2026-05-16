@@ -174,9 +174,32 @@ class SupervisorViewModel @Inject constructor(
             _syncState.value = when (val result = syncEngine.syncNow()) {
                 SyncResult.NothingToSync -> SyncState.Success(0)
                 is SyncResult.Success -> SyncState.Success(result.count)
-                is SyncResult.Error -> SyncState.Error(result.message)
+                is SyncResult.Error -> SyncState.Error(friendlySyncError(result.message))
             }
         }
+    }
+
+    private fun friendlySyncError(raw: String): String = when {
+        raw.contains("Unable to resolve host", ignoreCase = true) ||
+        raw.contains("UnknownHostException", ignoreCase = true) ||
+        raw.contains("failed to connect", ignoreCase = true) ||
+        raw.contains("No address associated", ignoreCase = true) ->
+            "No internet connection. Please connect to a network and try again."
+        raw.contains("timeout", ignoreCase = true) ||
+        raw.contains("SocketTimeoutException", ignoreCase = true) ->
+            "The sync server took too long to respond. Please try again shortly."
+        raw.contains("Unauthorized", ignoreCase = true) ||
+        raw.contains("401", ignoreCase = true) ->
+            "Sync authorisation failed. Please contact your supervisor."
+        raw.contains("404", ignoreCase = true) ||
+        raw.contains("500", ignoreCase = true) ||
+        raw.contains("502", ignoreCase = true) ||
+        raw.contains("503", ignoreCase = true) ->
+            "The sync service is temporarily unavailable. Please try again later."
+        raw.contains("SSLException", ignoreCase = true) ||
+        raw.contains("SSL", ignoreCase = true) ->
+            "A secure connection could not be established. Please check your network."
+        else -> "Sync failed. Please check your connection and try again."
     }
 
     private fun mapUrgencyDistribution(counts: List<UrgencyCount>): UrgencyDistribution {

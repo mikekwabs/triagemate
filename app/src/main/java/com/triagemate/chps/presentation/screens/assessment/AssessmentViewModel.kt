@@ -11,7 +11,9 @@ import com.triagemate.chps.domain.model.Pathway
 import com.triagemate.chps.domain.model.ToolCallRecord
 import com.triagemate.chps.domain.model.TriageInput
 import com.triagemate.chps.domain.model.VisualFinding
+import com.triagemate.chps.domain.model.VoiceInputResult
 import com.triagemate.chps.domain.repository.InferenceRepository
+import com.triagemate.chps.util.AudioRecorderManager
 import com.triagemate.chps.domain.usecase.RunTriageUseCase
 import com.triagemate.chps.domain.usecase.SaveAssessmentUseCase
 import com.triagemate.chps.util.CameraTier
@@ -33,6 +35,17 @@ import org.json.JSONObject
 import java.io.File
 import java.util.UUID
 import javax.inject.Inject
+
+sealed class VoiceInputState {
+    data object Idle : VoiceInputState()
+    data object Recording : VoiceInputState()
+    data object Processing : VoiceInputState()
+    data class Confirmed(
+        val translation: String,
+        val matchedSymptoms: List<String>
+    ) : VoiceInputState()
+    data class Error(val message: String) : VoiceInputState()
+}
 
 sealed class VisualAssessmentState {
     data object Idle : VisualAssessmentState()
@@ -67,6 +80,7 @@ data class AssessmentUiState(
     val currentRound: Int = 0,
     val dangerSignCount: Int = 0,
     val assessmentStartMs: Long = 0L,
+    val voiceInputState: VoiceInputState = VoiceInputState.Idle,
 )
 
 @HiltViewModel
@@ -74,7 +88,8 @@ class AssessmentViewModel @Inject constructor(
     @ApplicationContext private val context: Context,
     private val runTriageUseCase: RunTriageUseCase,
     private val saveAssessmentUseCase: SaveAssessmentUseCase,
-    private val inferenceRepository: InferenceRepository
+    private val inferenceRepository: InferenceRepository,
+    private val audioRecorderManager: AudioRecorderManager
 ) : ViewModel() {
 
     private val pathway = MutableStateFlow(Pathway.CHILD_U5)
@@ -93,6 +108,7 @@ class AssessmentViewModel @Inject constructor(
     private val currentRound = MutableStateFlow(0)
     private val dangerSignCount = MutableStateFlow(0)
     private val assessmentStartMs = MutableStateFlow(0L)
+    private val voiceInputState = MutableStateFlow<VoiceInputState>(VoiceInputState.Idle)
 
     val cameraTier: StateFlow<CameraTier> =
         combine(selectedSymptoms, pathway, patientAge) { symptoms, currentPathway, age ->
@@ -134,7 +150,8 @@ class AssessmentViewModel @Inject constructor(
         toolCallLog,
         currentRound,
         dangerSignCount,
-        assessmentStartMs
+        assessmentStartMs,
+        voiceInputState
     ) { values: Array<Any?> ->
         AssessmentUiState(
             pathway = values[0] as Pathway,
@@ -155,12 +172,14 @@ class AssessmentViewModel @Inject constructor(
             toolCallLog = values[15] as List<ToolCallRecord>,
             currentRound = values[16] as Int,
             dangerSignCount = values[17] as Int,
-            assessmentStartMs = values[18] as Long
+            assessmentStartMs = values[18] as Long,
+            voiceInputState = values[19] as VoiceInputState
         )
     }.stateIn(viewModelScope, SharingStarted.Eagerly, AssessmentUiState())
 
     private var currentInput: TriageInput? = null
     private var visualAnalysisJob: Job? = null
+    private var voiceRecordingJob: Job? = null
 
     fun initPathway(pathway: Pathway) {
         this.pathway.value = pathway
@@ -412,12 +431,17 @@ class AssessmentViewModel @Inject constructor(
             val photoDir = File(context.filesDir, "clinical_photos").apply { mkdirs() }
             val destination = File(photoDir, "photo_${UUID.randomUUID()}.jpg")
 
-            context.contentResolver.openInputStream(sourceUri)?.use { input ->
+            val copied = context.contentResolver.openInputStream(sourceUri)?.use { input ->
                 destination.outputStream().use { output -> input.copyTo(output) }
-            } ?: if (sourceFile?.exists() == true) {
-                sourceFile.copyTo(destination, overwrite = true)
-            } else {
-                error("Unable to read captured photo")
+                true
+            } ?: false
+
+            if (!copied) {
+                if (sourceFile?.exists() == true) {
+                    sourceFile.copyTo(destination, overwrite = true)
+                } else {
+                    error("Unable to read captured photo")
+                }
             }
 
             if (sourceFile?.exists() == true && sourceFile.absolutePath != destination.absolutePath) {
@@ -426,6 +450,68 @@ class AssessmentViewModel @Inject constructor(
 
             Uri.fromFile(destination)
         }.getOrNull()
+    }
+
+    fun startVoiceRecording() {
+        if (voiceRecordingJob?.isActive == true) return
+        if (!audioRecorderManager.hasPermission()) {
+            voiceInputState.value = VoiceInputState.Error("Microphone permission is required to record voice input.")
+            return
+        }
+
+        voiceInputState.value = VoiceInputState.Recording
+        voiceRecordingJob = viewModelScope.launch {
+            try {
+                val pcmBytes = audioRecorderManager.startAndCollect()
+                if (pcmBytes.isEmpty()) {
+                    voiceInputState.value = VoiceInputState.Error("No audio was captured. Please try again.")
+                    return@launch
+                }
+
+                voiceInputState.value = VoiceInputState.Processing
+                val wavBytes = audioRecorderManager.pcmToWav(pcmBytes)
+                val result = inferenceRepository.processVoiceInput(
+                    audioBytes = wavBytes,
+                    pathway = pathway.value
+                )
+                when (result) {
+                    is VoiceInputResult.Success -> {
+                        if (result.extractedSymptoms.isNotEmpty()) {
+                            val current = selectedSymptoms.value.toMutableSet()
+                            current.addAll(result.extractedSymptoms)
+                            selectedSymptoms.value = current
+                        }
+                        voiceInputState.value = VoiceInputState.Confirmed(
+                            translation = result.rawTranslation,
+                            matchedSymptoms = result.extractedSymptoms
+                        )
+                    }
+                    is VoiceInputResult.Error -> {
+                        voiceInputState.value = VoiceInputState.Error(result.message)
+                    }
+                }
+            } catch (e: SecurityException) {
+                voiceInputState.value = VoiceInputState.Error("Microphone permission is required to record voice input.")
+            } catch (e: Exception) {
+                voiceInputState.value = VoiceInputState.Error(e.message ?: "Voice input failed.")
+            }
+        }
+    }
+
+    fun stopVoiceRecording() {
+        audioRecorderManager.stop()
+    }
+
+    fun dismissVoiceInput() {
+        voiceRecordingJob?.cancel()
+        audioRecorderManager.stop()
+        voiceInputState.value = VoiceInputState.Idle
+    }
+
+    fun retryVoiceInput() {
+        voiceRecordingJob?.cancel()
+        audioRecorderManager.stop()
+        voiceInputState.value = VoiceInputState.Idle
     }
 
     private fun deletePhoto(uri: Uri) {

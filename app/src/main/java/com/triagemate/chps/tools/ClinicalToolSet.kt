@@ -38,6 +38,8 @@ class ClinicalToolSet : ToolSet {
         private set
     var classifiedDangerSigns: List<String> = emptyList()
         private set
+    var classifiedConfidence: String = "HIGH"
+        private set
     var generatedReferralNote: String? = null
         private set
     var visualFinding: String? = null
@@ -51,6 +53,20 @@ class ClinicalToolSet : ToolSet {
     var reportedVisualFinding: Map<String, Any>? = null
         private set
 
+    /** Captured by [generateClinicalExplanation] for the post-assessment Learn More card. */
+    var explanationWhyThisClassification: String? = null
+        private set
+    var explanationWhatToWatchFor: String? = null
+        private set
+    var explanationClinicalReference: String? = null
+        private set
+
+    /** Captured by [extractSymptoms] for the Moat 2 voice-input flow. */
+    var voiceTranslation: String? = null
+        private set
+    var voiceMatchedSymptoms: List<String> = emptyList()
+        private set
+
     private var suppliedVitals: Map<String, String>? = null
 
     val toolCallLog: List<ToolCallRecord> get() = toolCallLogInternal.toList()
@@ -62,12 +78,18 @@ class ClinicalToolSet : ToolSet {
         classifiedUrgency = null
         classifiedAction = null
         classifiedDangerSigns = emptyList()
+        classifiedConfidence = "HIGH"
         generatedReferralNote = null
         visualFinding = null
         vitalsRequested = false
         requiredVitalsList = emptyList()
         drugInteractionResult = null
         reportedVisualFinding = null
+        explanationWhyThisClassification = null
+        explanationWhatToWatchFor = null
+        explanationClinicalReference = null
+        voiceTranslation = null
+        voiceMatchedSymptoms = emptyList()
         suppliedVitals = null
     }
 
@@ -274,17 +296,20 @@ class ClinicalToolSet : ToolSet {
         @ToolParam(description = "Vital signs if collected, or 'not_collected'") vitalSigns: String,
         @ToolParam(description = "Drug interaction status if checked, or 'not_checked'") drugInteractionStatus: String,
         @ToolParam(description = "Urgency classification: RED, AMBER, or GREEN") urgency: String,
-        @ToolParam(description = "Recommended action for the CHO, max 2 sentences") action: String
+        @ToolParam(description = "Recommended action for the CHO, max 2 sentences") action: String,
+        @ToolParam(description = "Confidence in this classification: HIGH, MEDIUM, or LOW") confidence: String = "HIGH"
     ): Map<String, Any> {
         classifiedUrgency = urgency
         classifiedAction = action
         classifiedDangerSigns = dangerSigns.split(",").map { it.trim() }.filter { it.isNotEmpty() }
+        classifiedConfidence = confidence.uppercase().ifBlank { "HIGH" }
         val result = mapOf(
             "urgency" to urgency,
             "action" to action,
             "danger_signs" to classifiedDangerSigns,
             "vital_signs" to vitalSigns,
-            "drug_interaction" to drugInteractionStatus
+            "drug_interaction" to drugInteractionStatus,
+            "confidence" to classifiedConfidence
         )
         record("classifyTriage", "$urgency|$dangerSigns|$action", result)
         return result
@@ -308,6 +333,50 @@ class ClinicalToolSet : ToolSet {
             "timestamp" to System.currentTimeMillis().toString()
         )
         record("generateReferralNote", referralNote.take(80), result)
+        return result
+    }
+
+    @Tool(
+        description = "Generate a short educational explanation for an already-finalised triage decision. This is shown after the assessment as supporting context for the Community Health Officer. It does NOT change the urgency, action, or referral note — those are already fixed. Be concise, clinically accurate, and pragmatic for a CHO working in a CHPS compound."
+    )
+    fun generateClinicalExplanation(
+        @ToolParam(description = "Plain-language reason this case received its urgency classification (RED / AMBER / GREEN). 2 to 4 sentences. Reference the specific symptoms, danger signs, or vitals that drove the decision.")
+        whyThisClassification: String,
+        @ToolParam(description = "Practical signs the CHO should watch for during transport, follow-up, or local care — early-warning indicators of deterioration. 2 to 4 sentences.")
+        whatToWatchFor: String,
+        @ToolParam(description = "Brief clinical reference: e.g. 'WHO IMCI 2014', 'Ghana Health Service Antenatal Guidelines', or the specific danger-sign chapter that applies. One short phrase.")
+        clinicalReference: String
+    ): Map<String, Any> {
+        explanationWhyThisClassification = whyThisClassification.trim()
+        explanationWhatToWatchFor = whatToWatchFor.trim()
+        explanationClinicalReference = clinicalReference.trim()
+        val result = mapOf(
+            "why_this_classification" to whyThisClassification,
+            "what_to_watch_for" to whatToWatchFor,
+            "clinical_reference" to clinicalReference
+        )
+        record("generateClinicalExplanation", clinicalReference.take(80), result)
+        return result
+    }
+
+    @Tool(
+        description = "Map a Twi voice description (already translated to English) onto the canonical symptom checklist for the active pathway. Call this exactly once after listening to the audio. Only include symptoms that the speaker clearly described — never invent or assume. Be precise: each entry in matchedSymptoms must match a canonical checklist label exactly."
+    )
+    fun extractSymptoms(
+        @ToolParam(description = "English translation of what the Community Health Officer or caregiver said in Twi. Keep it faithful to the original — do not summarise or remove nuance.")
+        translation: String,
+        @ToolParam(description = "Comma-separated canonical symptoms from the active pathway checklist that match the translation. Use the exact checklist wording. Leave empty if no symptom matches with confidence.")
+        matchedSymptoms: String
+    ): Map<String, Any> {
+        voiceTranslation = translation.trim()
+        voiceMatchedSymptoms = matchedSymptoms.split(",")
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+        val result = mapOf(
+            "translation" to voiceTranslation.orEmpty(),
+            "matched_symptoms" to voiceMatchedSymptoms
+        )
+        record("extractSymptoms", translation.take(80), result)
         return result
     }
 }

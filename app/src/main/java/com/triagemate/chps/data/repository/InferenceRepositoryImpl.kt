@@ -13,12 +13,17 @@ import com.google.ai.edge.litertlm.tool
 import com.triagemate.chps.data.engine.EngineProvider
 import com.triagemate.chps.domain.model.AgenticStatus
 import com.triagemate.chps.domain.model.AgenticTriageResult
+import com.triagemate.chps.domain.model.ClinicalExplanation
 import com.triagemate.chps.domain.model.ConfidenceLevel
 import com.triagemate.chps.domain.model.Pathway
 import com.triagemate.chps.domain.model.TriageInput
 import com.triagemate.chps.domain.model.TriageResult
 import com.triagemate.chps.domain.model.VisualFinding
+import com.triagemate.chps.domain.model.VoiceInputResult
+import com.triagemate.chps.util.Constants
 import com.triagemate.chps.domain.repository.InferenceRepository
+import com.triagemate.chps.domain.safety.SafetyGuardrail
+import com.triagemate.chps.domain.safety.SafetyOverrideResult
 import com.triagemate.chps.tools.ClinicalToolSet
 import com.triagemate.chps.util.PromptBuilder
 import com.triagemate.chps.util.VisualCue
@@ -174,7 +179,12 @@ class InferenceRepositoryImpl @Inject constructor(
             } catch (e: Exception) {
                 closeConversationQuietly(conversation)
                 Log.e(TAG, "runTriage: EXCEPTION — ${e.message}", e)
-                errorResult("Error: ${e.message}", input)
+                if (isToolCallParseError(e)) {
+                    Log.w(TAG, "runTriage: tool-call parse error — applying rule-based fallback")
+                    recoverFromParseError(input, suppliedVitals = null)
+                } else {
+                    errorResult("Error: ${e.message}", input)
+                }
             }
         }
     }
@@ -215,9 +225,166 @@ class InferenceRepositoryImpl @Inject constructor(
             } catch (e: Exception) {
                 Log.e(TAG, "resumeWithVitals: EXCEPTION — ${e.message}", e)
                 closePausedSession()
-                errorResult("Error: ${e.message}", session.input)
+                if (isToolCallParseError(e)) {
+                    Log.w(TAG, "resumeWithVitals: tool-call parse error — applying rule-based fallback")
+                    recoverFromParseError(session.input, suppliedVitals = vitalSigns)
+                } else {
+                    errorResult("Error: ${e.message}", session.input)
+                }
             }
         }
+    }
+
+    override suspend fun generateClinicalExplanation(
+        result: TriageResult,
+        input: TriageInput,
+        safetyOverride: SafetyOverrideResult?
+    ): ClinicalExplanation = withContext(Dispatchers.IO) {
+        if (!engineProvider.ensureEngineReady()) {
+            return@withContext fallbackExplanation(result, "Model is not available on this device.")
+        }
+
+        val explanationToolSet = ClinicalToolSet()
+        val conversation = engineProvider.engine!!.createConversation(
+            ConversationConfig(
+                systemInstruction = Contents.of(PromptBuilder.buildExplanationSystemPrompt()),
+                samplerConfig = SamplerConfig(topK = 40, topP = 0.95, temperature = 0.4),
+                tools = listOf(tool(explanationToolSet)),
+                automaticToolCalling = false
+            )
+        )
+
+        try {
+            val message = conversation.sendMessage(
+                PromptBuilder.buildExplanationPrompt(result, input, safetyOverride)
+            )
+            val toolCall = message.toolCalls.firstOrNull()
+            if (toolCall == null || canonicalToolName(toolCall.name) != "generateClinicalExplanation") {
+                Log.w(TAG, "generateClinicalExplanation: tool was not called — using fallback")
+                return@withContext fallbackExplanation(result, "The model did not produce a structured explanation.")
+            }
+
+            val args = toolCall.arguments
+            val why = argString(args, "whyThisClassification").trim()
+            val watch = argString(args, "whatToWatchFor").trim()
+            val reference = argString(args, "clinicalReference").trim()
+
+            ClinicalExplanation(
+                whyThisClassification = why.ifBlank { defaultWhy(result) },
+                whatToWatchFor = watch.ifBlank { defaultWatchFor(result) },
+                clinicalReference = reference.ifBlank { defaultReference(input.pathway) }
+            )
+        } catch (e: Exception) {
+            Log.e(TAG, "generateClinicalExplanation: ${e.message}", e)
+            fallbackExplanation(result, "The explanation could not be generated (${e.message ?: "unknown error"}).")
+        } finally {
+            closeConversationQuietly(conversation)
+        }
+    }
+
+    override suspend fun processVoiceInput(
+        audioBytes: ByteArray,
+        pathway: Pathway
+    ): VoiceInputResult = withContext(Dispatchers.IO) {
+        if (audioBytes.isEmpty()) {
+            return@withContext VoiceInputResult.Error("No audio was captured. Please try again.")
+        }
+        if (!engineProvider.ensureEngineReady()) {
+            return@withContext VoiceInputResult.Error("Model is not available on this device.")
+        }
+
+        val canonicalSymptoms = when (pathway) {
+            Pathway.CHILD_U5 -> Constants.CHILD_U5_SYMPTOMS
+            Pathway.ANTENATAL -> Constants.ANTENATAL_SYMPTOMS
+        }
+
+        val conversation = engineProvider.engine!!.createConversation(
+            ConversationConfig(
+                systemInstruction = Contents.of(PromptBuilder.buildVoiceSystemPrompt()),
+                samplerConfig = SamplerConfig(topK = 40, topP = 0.95, temperature = 0.2),
+                automaticToolCalling = false
+            )
+        )
+
+        try {
+            val message = conversation.sendMessage(
+                Contents.of(
+                    Content.AudioBytes(audioBytes),
+                    Content.Text(PromptBuilder.buildVoicePrompt(pathway, canonicalSymptoms))
+                )
+            )
+
+            val text = message.contents.contents
+                .filterIsInstance<Content.Text>()
+                .joinToString(" ") { it.text }
+                .trim()
+
+            Log.d(TAG, "processVoiceInput: raw translation='${text.take(200)}'")
+
+            when {
+                text.isBlank() -> VoiceInputResult.Error(
+                    "The model did not return a translation. Please try again."
+                )
+                text.equals("UNCLEAR", ignoreCase = true) -> VoiceInputResult.Error(
+                    "The audio was unclear. Try again in a quieter spot and speak closer to the phone."
+                )
+                else -> VoiceInputResult.Success(
+                    rawTranslation = text,
+                    extractedSymptoms = fuzzyMatchCanonical(text, canonicalSymptoms)
+                )
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "processVoiceInput: ${e.message}", e)
+            VoiceInputResult.Error(e.message ?: "Voice processing failed.")
+        } finally {
+            closeConversationQuietly(conversation)
+        }
+    }
+
+    private fun fuzzyMatchCanonical(
+        translation: String,
+        canonicalSymptoms: List<String>
+    ): List<String> {
+        val lower = translation.lowercase()
+        return canonicalSymptoms.filter { canonical ->
+            val canonicalLower = canonical.lowercase()
+            if (lower.contains(canonicalLower)) return@filter true
+            val tokens = canonicalLower
+                .split(" ", "/", "-", "(", ")", ",")
+                .map { it.trim() }
+                .filter { it.length >= 5 }
+            tokens.isNotEmpty() && tokens.any { lower.contains(it) }
+        }.distinct()
+    }
+
+    private fun fallbackExplanation(result: TriageResult, reason: String): ClinicalExplanation {
+        return ClinicalExplanation(
+            whyThisClassification = "${defaultWhy(result)} ($reason)",
+            whatToWatchFor = defaultWatchFor(result),
+            clinicalReference = "WHO IMCI / Ghana Health Service guidelines"
+        )
+    }
+
+    private fun defaultWhy(result: TriageResult): String {
+        val signs = result.dangerSignsDetected.joinToString(", ").ifBlank { "the reported symptoms" }
+        return when (result.urgency.uppercase()) {
+            "RED" -> "This case was classified as RED because of $signs, which require urgent referral."
+            "AMBER" -> "This case was classified as AMBER based on $signs; closer review is needed but it is not an immediate emergency."
+            else -> "This case was classified as ${result.urgency} based on $signs."
+        }
+    }
+
+    private fun defaultWatchFor(result: TriageResult): String {
+        return when (result.urgency.uppercase()) {
+            "RED" -> "Watch for worsening breathing, fits, drop in consciousness, or any new danger sign during transport."
+            "AMBER" -> "Watch for any new danger sign, persistent fever, or worsening of current symptoms over the next 24 hours."
+            else -> "Watch for any new danger signs and return to the CHPS compound if symptoms worsen."
+        }
+    }
+
+    private fun defaultReference(pathway: Pathway): String = when (pathway) {
+        Pathway.CHILD_U5 -> "WHO IMCI 2014 — danger signs chapter"
+        Pathway.ANTENATAL -> "Ghana Health Service Antenatal Care Guidelines"
     }
 
     private fun continueConversation(
@@ -294,7 +461,17 @@ class InferenceRepositoryImpl @Inject constructor(
                 }
             }
 
-            currentMessage = conversation.sendMessage(Message.tool(Contents.of(toolResponses)))
+            currentMessage = try {
+                conversation.sendMessage(Message.tool(Contents.of(toolResponses)))
+            } catch (e: Exception) {
+                if (isToolCallParseError(e)) {
+                    Log.w(TAG, "continueConversation: malformed tool call — recovering (classifiedUrgency=${clinicalToolSet.classifiedUrgency})")
+                    closePausedSession()
+                    closeConversationQuietly(conversation)
+                    return recoverFromParseError(input, suppliedVitals)
+                }
+                throw e
+            }
         }
 
         closePausedSession()
@@ -325,7 +502,8 @@ class InferenceRepositoryImpl @Inject constructor(
                 vitalSigns = argString(args, "vitalSigns"),
                 drugInteractionStatus = argString(args, "drugInteractionStatus"),
                 urgency = argString(args, "urgency"),
-                action = argString(args, "action")
+                action = argString(args, "action"),
+                confidence = argString(args, "confidence").ifBlank { "HIGH" }
             )
 
             "generateReferralNote" -> clinicalToolSet.generateReferralNote(
@@ -349,12 +527,73 @@ class InferenceRepositoryImpl @Inject constructor(
         "checkDrugInteraction", "check_drug_interaction" -> "checkDrugInteraction"
         "classifyTriage", "classify_triage" -> "classifyTriage"
         "generateReferralNote", "generate_referral_note" -> "generateReferralNote"
+        "generateClinicalExplanation", "generate_clinical_explanation" -> "generateClinicalExplanation"
         else -> name
     }
 
     private fun isVitalsRequestTool(name: String): Boolean = canonicalToolName(name) == REQUEST_VITALS_TOOL
 
     private fun isDrugInteractionTool(name: String): Boolean = canonicalToolName(name) == "checkDrugInteraction"
+
+    private fun isToolCallParseError(e: Throwable): Boolean {
+        val msg = e.message.orEmpty()
+        return msg.contains("Failed to parse tool calls", ignoreCase = true) ||
+            msg.contains("Failed to parse FC tool calls", ignoreCase = true)
+    }
+
+    /**
+     * Recovery path when LiteRT cannot parse the model's tool call (e.g. unquoted values,
+     * quoted keys, malformed parameter names). Falls back to a rule-based classification
+     * driven by the patient's reported symptoms so the CHO still gets a usable triage
+     * result rather than an error screen.
+     */
+    private fun recoverFromParseError(
+        input: TriageInput,
+        suppliedVitals: Map<String, String>?
+    ): AgenticTriageResult {
+        if (clinicalToolSet.classifiedUrgency != null) {
+            // classifyTriage already succeeded; only the trailing call (e.g. generateReferralNote) failed.
+            return buildCompleteResult(suppliedVitals, input)
+        }
+
+        Log.w(TAG, "recoverFromParseError: classifyTriage never ran — synthesising rule-based result")
+
+        val symptomList = input.symptoms.joinToString(",")
+        val assessResult = runCatching {
+            clinicalToolSet.assessSymptoms(
+                pathway = input.pathway.name,
+                symptoms = symptomList,
+                patientAge = input.patientAge,
+                patientSex = input.patientSex
+            )
+        }.getOrNull()
+
+        @Suppress("UNCHECKED_CAST")
+        val detectedDangerSigns = (assessResult?.get("danger_signs") as? List<String>).orEmpty()
+        val hasAutoRed = detectedDangerSigns.isNotEmpty() || hasAutoRedSign(input)
+        val urgency = if (hasAutoRed) "RED" else "AMBER"
+        val action = if (hasAutoRed) {
+            "Refer urgently. Danger sign present (auto-classified due to model error)."
+        } else {
+            "Refer for clinical review. Model could not complete triage — use clinical judgement."
+        }
+
+        runCatching {
+            clinicalToolSet.classifyTriage(
+                pathway = input.pathway.name,
+                symptoms = symptomList,
+                dangerSigns = detectedDangerSigns.joinToString(","),
+                vitalSigns = suppliedVitals?.entries?.joinToString(",") { "${it.key}=${it.value}" }
+                    ?: "not_collected",
+                drugInteractionStatus = "not_checked",
+                urgency = urgency,
+                action = action,
+                confidence = "LOW"
+            )
+        }
+
+        return buildCompleteResult(suppliedVitals, input)
+    }
 
     private fun hasAutoRedSign(input: TriageInput): Boolean {
         val autoRedSet = when (input.pathway) {
@@ -432,19 +671,34 @@ class InferenceRepositoryImpl @Inject constructor(
             input = input
         )
 
+        val confidence = confidenceLevelFromString(clinicalToolSet.classifiedConfidence)
+        val safetyOverride = SafetyGuardrail.apply(
+            gemmaUrgency = triageResult.urgency,
+            selectedSymptoms = input.symptoms,
+            pathway = input.pathway
+        )
+
+        val finalTriageResult = triageResult.copy(
+            urgency = safetyOverride.finalUrgency,
+            referralNote = finalizedReferralNote,
+            visualFinding = visualSummary(input),
+            confidence = confidence,
+            safetyOverrideApplied = safetyOverride.wasOverridden,
+            safetyOverrideReason = safetyOverride.overrideReason,
+            originalGemmaUrgency = safetyOverride.originalGemmaUrgency
+        )
+
         return AgenticTriageResult(
             status = AgenticStatus.COMPLETE,
-            triageResult = triageResult.copy(
-                referralNote = finalizedReferralNote,
-                visualFinding = visualSummary(input)
-            ),
+            triageResult = finalTriageResult,
             referralNote = finalizedReferralNote,
             visualFinding = visualSummary(input),
             confirmedVisualFinding = input.confirmedVisualFinding,
             vitalSignsCollected = collectedVitals,
             drugInteraction = clinicalToolSet.drugInteractionResult,
             toolCallLog = clinicalToolSet.toolCallLog,
-            currentRound = clinicalToolSet.rounds
+            currentRound = clinicalToolSet.rounds,
+            safetyOverride = safetyOverride
         )
     }
 

@@ -133,7 +133,7 @@ object VisualCueMapper {
 
         if (symptoms.contains("Fever")) {
             return VisualCue(
-                title = "Photograph the child's palm and inner eyelid",
+                title = "Photograph the child's palm or inner eyelid",
                 reason = "Fever - checking for pallor or jaundice",
                 gemmaInstruction = "The CHO has photographed the child's palm or inner eyelid. Assess for palmar pallor - the palm looks pale or white rather than pink, suggesting anaemia - and for yellow discolouration of the skin or whites of the eyes, suggesting jaundice or severe illness.",
                 findingType = FindingType.NEW_OBSERVATION,

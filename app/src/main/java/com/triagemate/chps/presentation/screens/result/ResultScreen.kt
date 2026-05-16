@@ -13,7 +13,11 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.outlined.*
+import androidx.compose.material.icons.automirrored.outlined.VolumeOff
+import androidx.compose.material.icons.automirrored.outlined.VolumeUp
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -28,8 +32,13 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.triagemate.chps.domain.model.ConfidenceLevel
 import com.triagemate.chps.domain.model.ToolCallRecord
 import com.triagemate.chps.domain.model.VisualFinding
+import com.triagemate.chps.domain.safety.SafetyOverrideResult
+import com.triagemate.chps.presentation.components.ConfidenceChip
+import com.triagemate.chps.presentation.components.LearnMoreCard
+import com.triagemate.chps.presentation.components.SafetyOverrideCard
 import com.triagemate.chps.presentation.theme.*
 import org.json.JSONObject
 import java.text.SimpleDateFormat
@@ -177,7 +186,10 @@ private fun visualReviewSummary(result: com.triagemate.chps.domain.model.TriageR
 }
 
 @Composable
-private fun AssessmentStepsCard(toolCallLog: List<ToolCallRecord>) {
+private fun AssessmentStepsCard(
+    toolCallLog: List<ToolCallRecord>,
+    safetyOverride: SafetyOverrideResult? = null
+) {
     if (toolCallLog.isEmpty()) return
     var expanded by remember { mutableStateOf(false) }
     Card(
@@ -212,9 +224,7 @@ private fun AssessmentStepsCard(toolCallLog: List<ToolCallRecord>) {
                         Modifier.fillMaxWidth().padding(vertical = 6.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Box(
-                            Modifier.size(10.dp).clip(CircleShape).background(StepperTeal)
-                        )
+                        Box(Modifier.size(10.dp).clip(CircleShape).background(StepperTeal))
                         Spacer(Modifier.width(10.dp))
                         Text(
                             text = "Round ${record.round}: ${record.toolName} \u2192 ${stepSummary(record)}",
@@ -223,6 +233,49 @@ private fun AssessmentStepsCard(toolCallLog: List<ToolCallRecord>) {
                             lineHeight = 18.sp,
                             modifier = Modifier.weight(1f)
                         )
+                    }
+                }
+                // Safety guardrail audit row
+                if (safetyOverride != null) {
+                    Spacer(Modifier.height(4.dp))
+                    if (safetyOverride.wasOverridden) {
+                        Row(
+                            Modifier.fillMaxWidth().padding(vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Default.Shield, null, tint = Color(0xFFD97706), modifier = Modifier.size(14.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                                text = "Safety override applied",
+                                fontSize = 13.sp,
+                                color = Color(0xFF92400E),
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+                        Row(
+                            Modifier.fillMaxWidth().padding(start = 16.dp, bottom = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "Gemma: ${safetyOverride.originalGemmaUrgency} \u2192 Override: RED — ${safetyOverride.overrideReason}",
+                                fontSize = 12.sp,
+                                color = Color(0xFF6B7280),
+                                lineHeight = 17.sp
+                            )
+                        }
+                    } else {
+                        Row(
+                            Modifier.fillMaxWidth().padding(vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Default.Shield, null, tint = StepperTeal, modifier = Modifier.size(14.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                                text = "Safety check passed — no override required",
+                                fontSize = 13.sp,
+                                color = Color(0xFF6B7280)
+                            )
+                        }
                     }
                 }
             }
@@ -410,6 +463,10 @@ private fun VisualAssessmentCard(
 @Composable
 fun ResultScreen(onNewAssessment: () -> Unit, viewModel: ResultViewModel = hiltViewModel()) {
     val uiState by viewModel.uiState.collectAsState()
+    val confidence by viewModel.confidence.collectAsState()
+    val safetyOverride by viewModel.safetyOverride.collectAsState()
+    val learnMoreState by viewModel.learnMoreState.collectAsState()
+    val isSpeaking by viewModel.isSpeaking.collectAsState()
     val context = LocalContext.current
 
     when {
@@ -429,14 +486,40 @@ fun ResultScreen(onNewAssessment: () -> Unit, viewModel: ResultViewModel = hiltV
 
                 // ── Urgency banner ─────────────────────────────────
                 Box(
-                    Modifier.fillMaxWidth().background(m.bannerColor)
-                        .statusBarsPadding().padding(horizontal = 20.dp, vertical = 24.dp)
+                    modifier = Modifier.fillMaxWidth().background(m.bannerColor).statusBarsPadding()
                 ) {
-                    Column {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 24.dp)) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
                             Icon(m.icon, null, tint = Color.White, modifier = Modifier.size(28.dp))
                             Spacer(Modifier.width(12.dp))
-                            Text(m.title, color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                            Text(
+                                m.title,
+                                color = Color.White,
+                                fontSize = 20.sp,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.weight(1f)
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            ConfidenceChip(confidence = confidence, wasOverridden = safetyOverride?.wasOverridden == true)
+                            Spacer(Modifier.width(6.dp))
+                            Box(
+                                modifier = Modifier
+                                    .size(36.dp)
+                                    .clip(CircleShape)
+                                    .background(Color.White.copy(alpha = 0.18f))
+                                    .clickable { viewModel.toggleSpeak() },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = if (isSpeaking) Icons.AutoMirrored.Outlined.VolumeOff else Icons.AutoMirrored.Outlined.VolumeUp,
+                                    contentDescription = if (isSpeaking) "Stop reading aloud" else "Read aloud",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
                         }
                         Spacer(Modifier.height(4.dp))
                         Text(m.subtitle, color = Color.White.copy(0.85f), fontSize = 14.sp,
@@ -449,6 +532,11 @@ fun ResultScreen(onNewAssessment: () -> Unit, viewModel: ResultViewModel = hiltV
                     Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
+
+                    // Safety Override Card (shown only when guardrail triggered)
+                    safetyOverride?.takeIf { it.wasOverridden }?.let { override ->
+                        SafetyOverrideCard(override = override)
+                    }
 
                     // Recommended Action
                     Card(
@@ -513,6 +601,46 @@ fun ResultScreen(onNewAssessment: () -> Unit, viewModel: ResultViewModel = hiltV
                                         color = Color(0xFF6B7280),
                                         fontSize = 13.sp,
                                         lineHeight = 19.sp
+                                    )
+                                }
+                            }
+
+                            // Clinical disclaimer
+                            if (confidence == ConfidenceLevel.LOW) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(top = 12.dp)
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .background(Color(0xFFFFFBEB))
+                                        .then(Modifier.padding(10.dp))
+                                ) {
+                                    Row(verticalAlignment = Alignment.Top) {
+                                        Icon(Icons.Default.Shield, null, tint = Color(0xFFD97706), modifier = Modifier.size(14.dp))
+                                        Spacer(Modifier.width(6.dp))
+                                        Text(
+                                            text = "Low confidence result. Use your clinical judgement and consider seeking supervisor input before referring.",
+                                            color = Color(0xFF92400E),
+                                            fontSize = 12.sp,
+                                            lineHeight = 18.sp
+                                        )
+                                    }
+                                }
+                            } else {
+                                HorizontalDivider(
+                                    color = Color(0xFFF3F4F6),
+                                    thickness = 1.dp,
+                                    modifier = Modifier.padding(top = 12.dp, bottom = 8.dp)
+                                )
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(Icons.Default.Shield, null, tint = Color(0xFF9CA3AF), modifier = Modifier.size(14.dp))
+                                    Spacer(Modifier.width(4.dp))
+                                    Text(
+                                        text = "TriageMate supports clinical decision-making — your judgement always takes priority.",
+                                        color = Color(0xFF9CA3AF),
+                                        fontSize = 11.sp,
+                                        fontStyle = androidx.compose.ui.text.font.FontStyle.Italic,
+                                        lineHeight = 16.sp
                                     )
                                 }
                             }
@@ -640,50 +768,55 @@ fun ResultScreen(onNewAssessment: () -> Unit, viewModel: ResultViewModel = hiltV
                     }
 
                     // Assessment Steps (audit trail)
-                    AssessmentStepsCard(r.toolCallLog)
+                    AssessmentStepsCard(r.toolCallLog, safetyOverride)
+
+                    // Learn about this case — Gemma educational explanation, on-demand
+                    LearnMoreCard(
+                        state = learnMoreState,
+                        onExpand = { viewModel.loadClinicalExplanation() },
+                        onRetry = { viewModel.retryClinicalExplanation() }
+                    )
                 }
 
                 // ── Bottom buttons ─────────────────────────────────
-                Column(
-                    Modifier.fillMaxWidth().background(Color(0xFFF8F9FA))
-                        .padding(horizontal = 16.dp).navigationBarsPadding().padding(bottom = 12.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(Color(0xFFF8F9FA))
+                        .padding(horizontal = 16.dp)
+                        .navigationBarsPadding()
+                        .padding(bottom = 12.dp, top = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // Share Referral Note — light grey filled pill
-                    Button(
-                        onClick = {
-                            val i = Intent(Intent.ACTION_SEND).apply {
-                                type = "text/plain"
-                                putExtra(Intent.EXTRA_TEXT, r.referralNote)
-                            }
-                            context.startActivity(Intent.createChooser(i, "Share"))
-                        },
-                        modifier = Modifier.fillMaxWidth().height(52.dp),
-                        shape = RoundedCornerShape(26.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = Color.White,
-                            contentColor   = PrimaryNavy
-                        ),
-                        elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp),
-                        border = ButtonDefaults.outlinedButtonBorder.copy(
-                            brush = androidx.compose.ui.graphics.SolidColor(PrimaryNavy)
-                        )
+                    // Circular share icon button
+                    Box(
+                        modifier = Modifier
+                            .size(52.dp)
+                            .clip(CircleShape)
+                            .background(Color.White)
+                            .clickable {
+                                val i = Intent(Intent.ACTION_SEND).apply {
+                                    type = "text/plain"
+                                    putExtra(Intent.EXTRA_TEXT, r.referralNote)
+                                }
+                                context.startActivity(Intent.createChooser(i, "Share referral note"))
+                            },
+                        contentAlignment = Alignment.Center
                     ) {
-                        Icon(Icons.Default.Share, null, Modifier.size(20.dp))
-                        Spacer(Modifier.width(8.dp))
-                        Text("Share Referral Note", fontWeight = FontWeight.SemiBold)
+                        Icon(Icons.Default.Share, contentDescription = "Share referral note", tint = PrimaryNavy, modifier = Modifier.size(22.dp))
                     }
 
-                    // Save & New Assessment — navy filled pill
+                    // Save & New — navy filled pill
                     Button(
                         onClick = onNewAssessment,
-                        modifier = Modifier.fillMaxWidth().height(52.dp),
+                        modifier = Modifier.weight(1f).height(52.dp),
                         shape = RoundedCornerShape(26.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = PrimaryNavy)
                     ) {
                         Icon(Icons.Outlined.CheckCircle, null, Modifier.size(20.dp))
                         Spacer(Modifier.width(8.dp))
-                        Text("Save & New Assessment", fontWeight = FontWeight.SemiBold)
+                        Text("Save & New", fontWeight = FontWeight.SemiBold)
                     }
                 }
             }

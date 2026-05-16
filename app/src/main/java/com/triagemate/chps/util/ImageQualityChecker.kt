@@ -6,6 +6,8 @@ import android.graphics.BitmapFactory
 import android.net.Uri
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.io.File
+import java.io.InputStream
 import kotlin.math.max
 import kotlin.math.min
 
@@ -38,19 +40,27 @@ object ImageQualityChecker {
         ImageQualityResult(true, null)
     }
 
+    private fun openStream(context: Context, uri: Uri): InputStream? =
+        if (uri.scheme == "file" || uri.scheme == null) {
+            uri.path?.let { File(it).takeIf { f -> f.exists() }?.inputStream() }
+        } else {
+            context.contentResolver.openInputStream(uri)
+        }
+
     private fun decodeBitmap(context: Context, uri: Uri): Bitmap? {
         return runCatching {
             val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-            context.contentResolver.openInputStream(uri)?.use { input ->
-                BitmapFactory.decodeStream(input, null, bounds)
-            } ?: return null
+            val boundsStream = openStream(context, uri) ?: return@runCatching null
+            boundsStream.use { BitmapFactory.decodeStream(it, null, bounds) }
+
+            if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return@runCatching null
 
             val options = BitmapFactory.Options().apply {
                 inPreferredConfig = Bitmap.Config.ARGB_8888
                 inSampleSize = calculateSampleSize(bounds.outWidth, bounds.outHeight, 384, 384)
             }
 
-            context.contentResolver.openInputStream(uri)?.use { input ->
+            openStream(context, uri)?.use { input ->
                 BitmapFactory.decodeStream(input, null, options)
             }
         }.getOrNull()

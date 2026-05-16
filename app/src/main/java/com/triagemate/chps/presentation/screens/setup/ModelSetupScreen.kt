@@ -51,17 +51,26 @@ fun ModelSetupScreen(
             AnimatedContent(
                 targetState = state,
                 transitionSpec = { fadeIn() togetherWith fadeOut() },
+                contentKey = { it::class },
                 label = "setup_state"
             ) { currentState ->
                 when (currentState) {
-                    is DownloadState.Idle, is DownloadState.Enqueued ->
-                        IdleContent(
-                            isEnqueued = currentState is DownloadState.Enqueued,
-                            onDownload = { viewModel.startDownload() }
+                    is DownloadState.Idle ->
+                        IdleContent(onDownload = { viewModel.startDownload() })
+                    is DownloadState.Enqueued ->
+                        DownloadingContent(
+                            downloadedBytes = 0L,
+                            totalBytes = -1L,
+                            progress = 0f,
+                            isPreparing = true,
+                            onCancel = { viewModel.cancelDownload() }
                         )
                     is DownloadState.Downloading ->
                         DownloadingContent(
-                            state = currentState,
+                            downloadedBytes = currentState.downloadedBytes,
+                            totalBytes = currentState.totalBytes,
+                            progress = currentState.progress,
+                            isPreparing = currentState.totalBytes <= 0L,
                             onCancel = { viewModel.cancelDownload() }
                         )
                     is DownloadState.Completed ->
@@ -85,7 +94,7 @@ fun ModelSetupScreen(
 // ──────────────────────────────────────────────────────────────────────────────
 
 @Composable
-private fun IdleContent(isEnqueued: Boolean, onDownload: () -> Unit) {
+private fun IdleContent(onDownload: () -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -191,32 +200,21 @@ private fun IdleContent(isEnqueued: Boolean, onDownload: () -> Unit) {
             modifier = Modifier
                 .fillMaxWidth()
                 .height(56.dp),
-            enabled = !isEnqueued,
             shape = RoundedCornerShape(28.dp),
             colors = ButtonDefaults.buttonColors(containerColor = PrimaryBlue)
         ) {
-            if (isEnqueued) {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(22.dp),
-                    color = Color.White,
-                    strokeWidth = 2.dp
-                )
-                Spacer(Modifier.width(10.dp))
-                Text("Preparing download…", color = Color.White, fontWeight = FontWeight.Bold)
-            } else {
-                Text(
-                    "Download AI Model",
-                    color = Color.White,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 16.sp
-                )
-                Spacer(Modifier.width(8.dp))
-                Icon(
-                    Icons.AutoMirrored.Filled.ArrowForward,
-                    contentDescription = null,
-                    tint = Color.White
-                )
-            }
+            Text(
+                "Download AI Model",
+                color = Color.White,
+                fontWeight = FontWeight.Bold,
+                fontSize = 16.sp
+            )
+            Spacer(Modifier.width(8.dp))
+            Icon(
+                Icons.AutoMirrored.Filled.ArrowForward,
+                contentDescription = null,
+                tint = Color.White
+            )
         }
 
         Spacer(Modifier.height(40.dp))
@@ -228,7 +226,13 @@ private fun IdleContent(isEnqueued: Boolean, onDownload: () -> Unit) {
 // ──────────────────────────────────────────────────────────────────────────────
 
 @Composable
-private fun DownloadingContent(state: DownloadState.Downloading, onCancel: () -> Unit) {
+private fun DownloadingContent(
+    downloadedBytes: Long,
+    totalBytes: Long,
+    progress: Float,
+    isPreparing: Boolean,
+    onCancel: () -> Unit
+) {
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -269,21 +273,35 @@ private fun DownloadingContent(state: DownloadState.Downloading, onCancel: () ->
         ) {
             Column(modifier = Modifier.padding(20.dp)) {
                 Text(
-                    text = "Downloading AI Model",
+                    text = if (isPreparing) "Preparing Download…" else "Downloading AI Model",
                     fontWeight = FontWeight.Bold,
                     style = MaterialTheme.typography.titleMedium,
                     color = PrimaryBlue
                 )
                 Spacer(Modifier.height(16.dp))
-                LinearProgressIndicator(
-                    progress = { state.progress },
-                    modifier = Modifier.fillMaxWidth(),
-                    color = PrimaryBlue,
-                    trackColor = Color(0xFFE5E7EB)
-                )
+
+                if (isPreparing) {
+                    LinearProgressIndicator(
+                        modifier = Modifier.fillMaxWidth(),
+                        color = PrimaryBlue,
+                        trackColor = Color(0xFFE5E7EB)
+                    )
+                } else {
+                    LinearProgressIndicator(
+                        progress = { progress },
+                        modifier = Modifier.fillMaxWidth(),
+                        color = PrimaryBlue,
+                        trackColor = Color(0xFFE5E7EB)
+                    )
+                }
+
                 Spacer(Modifier.height(8.dp))
                 Text(
-                    text = "${formatBytes(state.downloadedBytes)} / ${formatBytes(state.totalBytes)}  —  ${(state.progress * 100).toInt()}%",
+                    text = if (isPreparing) {
+                        "Connecting to server…"
+                    } else {
+                        "${formatBytes(downloadedBytes)} / ${formatBytes(totalBytes)}  —  ${(progress * 100).toInt()}%"
+                    },
                     fontWeight = FontWeight.SemiBold,
                     color = PrimaryBlue,
                     style = MaterialTheme.typography.bodyMedium

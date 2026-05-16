@@ -10,6 +10,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -140,6 +141,16 @@ private fun HistoryCard(entry: HistoryEntry, onClick: () -> Unit) {
                     fontSize = 12.sp,
                     color = Color(0xFF95A5A6)
                 )
+            }
+            // Safety override shield (amber, icon only)
+            if (entry.safetyOverrideApplied) {
+                Icon(
+                    Icons.Default.Shield,
+                    contentDescription = "Safety override applied",
+                    tint = Color(0xFFD97706),
+                    modifier = Modifier.size(16.dp)
+                )
+                Spacer(Modifier.width(6.dp))
             }
             // Chevron
             Icon(

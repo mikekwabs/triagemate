@@ -1,5 +1,28 @@
 package com.triagemate.chps.util
 
+import com.triagemate.chps.domain.model.Pathway
+
+val AUTO_RED_CHILD_U5 = setOf(
+    "Unable to drink or breastfeed",
+    "Vomiting everything",
+    "Convulsions",
+    "Lethargic or unconscious",
+    "Stridor at rest",
+    "Severe chest indrawing"
+)
+
+val AUTO_RED_ANTENATAL = setOf(
+    "Heavy vaginal bleeding",
+    "Fits or convulsions",
+    "Fetal movements stopped",
+    "Cord prolapse"
+)
+
+fun isAutoRedSign(symptom: String, pathway: Pathway): Boolean = when (pathway) {
+    Pathway.CHILD_U5  -> symptom in AUTO_RED_CHILD_U5
+    Pathway.ANTENATAL -> symptom in AUTO_RED_ANTENATAL
+}
+
 object Constants {
     const val MODEL_FILENAME = "gemma-4-E2B-it.litertlm"
     const val MODEL_DOWNLOAD_URL = "https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm/resolve/main/gemma-4-E2B-it.litertlm?download=true"

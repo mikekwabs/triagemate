@@ -7,7 +7,9 @@ import com.triagemate.chps.data.local.db.AssessmentDao
 import com.triagemate.chps.data.local.model.AssessmentEntity
 import com.triagemate.chps.data.local.prefs.CompoundPreferences
 import com.triagemate.chps.domain.model.AgenticTriageResult
+import com.triagemate.chps.domain.model.ConfidenceLevel
 import com.triagemate.chps.domain.model.HistoryEntry
+import com.triagemate.chps.domain.model.Pathway
 import com.triagemate.chps.domain.model.ToolCallRecord
 import com.triagemate.chps.domain.model.TriageInput
 import com.triagemate.chps.domain.model.TriageResult
@@ -62,7 +64,11 @@ class AssessmentRepositoryImpl @Inject constructor(
             durationMillis = input.assessmentDurationMillis,
             syncStatus = "PENDING",
             syncedAt = null,
-            compoundId = compoundPreferences.getOrCreateCompoundId()
+            compoundId = compoundPreferences.getOrCreateCompoundId(),
+            safetyOverrideApplied = result.safetyOverride?.wasOverridden ?: false,
+            safetyOverrideReason = result.safetyOverride?.overrideReason,
+            originalGemmaUrgency = result.safetyOverride?.originalGemmaUrgency,
+            confidenceLevel = triage.confidence.name
         )
         return assessmentDao.insertAssessment(entity)
     }
@@ -94,7 +100,8 @@ class AssessmentRepositoryImpl @Inject constructor(
                     patientAge = entity.patientAge,
                     symptoms = stringListAdapter.fromJson(entity.symptomsJson) ?: emptyList(),
                     urgency = entity.urgency,
-                    timestamp = entity.timestamp
+                    timestamp = entity.timestamp,
+                    safetyOverrideApplied = entity.safetyOverrideApplied
                 )
             }
         }
@@ -112,6 +119,10 @@ class AssessmentRepositoryImpl @Inject constructor(
                 obj.keys().asSequence().associateWith { obj.getString(it) }
             } catch (e: Exception) { emptyMap() }
         } ?: emptyMap()
+        val confidence = try {
+            ConfidenceLevel.valueOf(entity.confidenceLevel)
+        } catch (_: Exception) { ConfidenceLevel.HIGH }
+
         return TriageResult(
             urgency             = entity.urgency,
             action              = entity.action,
@@ -123,7 +134,33 @@ class AssessmentRepositoryImpl @Inject constructor(
             photoUri            = entity.photoUri?.let(Uri::parse),
             vitalSigns          = vitalSigns,
             toolCallLog         = deserializeToolCallLog(entity.toolCallLogJson),
-            rawJson             = null
+            rawJson             = null,
+            confidence          = confidence,
+            safetyOverrideApplied  = entity.safetyOverrideApplied,
+            safetyOverrideReason   = entity.safetyOverrideReason,
+            originalGemmaUrgency   = entity.originalGemmaUrgency
+        )
+    }
+
+    override suspend fun getInputById(id: Long): TriageInput? {
+        val entity = assessmentDao.getAssessmentById(id) ?: return null
+        val pathway = Pathway.values().firstOrNull {
+            it.name.equals(entity.pathway, ignoreCase = true) ||
+                it.displayName.equals(entity.pathway, ignoreCase = true)
+        } ?: Pathway.CHILD_U5
+        val symptoms = stringListAdapter.fromJson(entity.symptomsJson) ?: emptyList()
+        val confirmedVisualFinding = entity.confirmedVisualFindingJson
+            ?.let(visualFindingAdapter::fromJson)
+        return TriageInput(
+            pathway = pathway,
+            symptoms = symptoms,
+            presentingComplaint = entity.presentingComplaint,
+            photoUri = entity.photoUri?.let(Uri::parse),
+            patientAge = entity.patientAge,
+            patientSex = entity.patientSex,
+            medications = "",
+            confirmedVisualFinding = confirmedVisualFinding,
+            assessmentDurationMillis = entity.durationMillis
         )
     }
 

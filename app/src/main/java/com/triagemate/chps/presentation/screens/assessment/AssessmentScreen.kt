@@ -1,6 +1,10 @@
 package com.triagemate.chps.presentation.screens.assessment
 
+import android.Manifest
 import android.content.pm.PackageManager
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -75,6 +79,8 @@ import com.triagemate.chps.presentation.components.ClinicalPhotoCard
 import com.triagemate.chps.presentation.components.UrgentActionBanner
 import com.triagemate.chps.presentation.components.SymptomCheckItem
 import com.triagemate.chps.presentation.components.VitalSignsSheet
+import com.triagemate.chps.presentation.components.VoiceInputCard
+import com.triagemate.chps.presentation.components.VoiceInputRow
 import com.triagemate.chps.presentation.theme.PrimaryNavy
 import com.triagemate.chps.presentation.theme.StepperTeal
 import com.triagemate.chps.util.CameraTier
@@ -170,6 +176,23 @@ fun AssessmentScreen(
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val scope = rememberCoroutineScope()
     val listState = rememberLazyListState()
+
+    val micPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) viewModel.startVoiceRecording()
+    }
+
+    val onVoiceTap: () -> Unit = {
+        val granted = ContextCompat.checkSelfPermission(
+            context, Manifest.permission.RECORD_AUDIO
+        ) == PackageManager.PERMISSION_GRANTED
+        if (granted) {
+            viewModel.startVoiceRecording()
+        } else {
+            micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+        }
+    }
 
     LaunchedEffect(pathway) { viewModel.initPathway(pathway) }
 
@@ -368,6 +391,31 @@ fun AssessmentScreen(
                                                 focusedContainerColor = Color.White
                                             ),
                                             singleLine = true
+                                        )
+                                    }
+                                }
+                            }
+
+                            item {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 16.dp, vertical = 4.dp)
+                                ) {
+                                    if (uiState.voiceInputState is VoiceInputState.Idle) {
+                                        VoiceInputRow(
+                                            enabled = !isAnalysingAssessment,
+                                            onClick = onVoiceTap
+                                        )
+                                    } else {
+                                        VoiceInputCard(
+                                            state = uiState.voiceInputState,
+                                            onStop = viewModel::stopVoiceRecording,
+                                            onDismiss = viewModel::dismissVoiceInput,
+                                            onRetry = {
+                                                viewModel.retryVoiceInput()
+                                                onVoiceTap()
+                                            }
                                         )
                                     }
                                 }

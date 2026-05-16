@@ -68,15 +68,13 @@ class EngineProvider @Inject constructor(
      */
     private fun selectBackend(): Backend {
         val totalRamMB = getTotalRamMB()
-        Log.d(TAG, "selectBackend: totalRAM=${totalRamMB}MB, GPU threshold=${GPU_MIN_RAM_MB}MB")
-
-        return if (totalRamMB >= GPU_MIN_RAM_MB) {
-            Log.d(TAG, "selectBackend: Device has sufficient RAM → attempting GPU")
-            Backend.GPU()
-        } else {
-            Log.d(TAG, "selectBackend: Insufficient RAM for GPU → using CPU")
-            Backend.CPU()
-        }
+        // CPU on all devices: the LiteRT-LM GPU delegate runs the model at FP16, which
+        // produces unstable tool-call tokens (corrupted enum values, duplicated
+        // delimiters) and crashes the native parser. CPU FP32 is deterministic and safe.
+        // Re-enable GPU here only after Google ships a higher-precision GPU delegate
+        // for Gemma function-calling models.
+        Log.d(TAG, "selectBackend: totalRAM=${totalRamMB}MB → forcing CPU (FP32 stability)")
+        return Backend.CPU()
     }
 
     private fun shouldEnableMtp(modelPath: String, backend: Backend): Boolean {
@@ -101,7 +99,9 @@ class EngineProvider @Inject constructor(
 
         val modelPath = context.getExternalFilesDir(null)!!.absolutePath +
                 "/" + Constants.MODEL_FILENAME
-        if (!File(modelPath).exists()) return false
+        val modelFile = File(modelPath)
+        if (!modelFile.exists()) return false
+        Log.i(TAG, "tryBuildEngine: model file size = ${modelFile.length()} bytes (${modelFile.length() / 1_000_000} MB) at $modelPath")
 
         val preferredBackend = selectBackend()
         val enableGpuMtp = shouldEnableMtp(modelPath, preferredBackend)
@@ -120,6 +120,7 @@ class EngineProvider @Inject constructor(
                         modelPath = modelPath,
                         backend   = Backend.GPU(),
                         visionBackend = Backend.GPU(),
+                        audioBackend = Backend.CPU(),
                         cacheDir  = context.cacheDir.path
                     )
                 )
@@ -141,6 +142,7 @@ class EngineProvider @Inject constructor(
                     modelPath = modelPath,
                     backend   = Backend.CPU(),
                     visionBackend = Backend.CPU(),
+                    audioBackend = Backend.CPU(),
                     cacheDir  = context.cacheDir.path
                 )
             )
