@@ -1,0 +1,122 @@
+{
+  "formatVersion": 1,
+  "database": {
+    "version": 5,
+    "identityHash": "ff0d08878c01ceae798a1762d6756d4f",
+    "entities": [
+      {
+        "tableName": "assessments",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `timestamp` INTEGER NOT NULL, `pathway` TEXT NOT NULL, `patient_age` TEXT NOT NULL, `symptoms_json` TEXT NOT NULL, `presenting_complaint` TEXT NOT NULL, `danger_signs_json` TEXT NOT NULL, `vital_signs_json` TEXT, `drug_interaction_json` TEXT, `urgency` TEXT NOT NULL, `action` TEXT NOT NULL, `referral_note` TEXT NOT NULL, `photo_uri` TEXT, `visual_finding` TEXT, `confirmed_visual_finding_json` TEXT, `tool_call_log_json` TEXT NOT NULL, `agent_rounds` INTEGER NOT NULL)",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "timestamp",
+            "columnName": "timestamp",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "pathway",
+            "columnName": "pathway",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "patientAge",
+            "columnName": "patient_age",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "symptomsJson",
+            "columnName": "symptoms_json",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "presentingComplaint",
+            "columnName": "presenting_complaint",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "dangerSignsJson",
+            "columnName": "danger_signs_json",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "vitalSignsJson",
+            "columnName": "vital_signs_json",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "drugInteractionJson",
+            "columnName": "drug_interaction_json",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "urgency",
+            "columnName": "urgency",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "action",
+            "columnName": "action",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "referralNote",
+            "columnName": "referral_note",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "photoUri",
+            "columnName": "photo_uri",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "visualFinding",
+            "columnName": "visual_finding",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "confirmedVisualFindingJson",
+            "columnName": "confirmed_visual_finding_json",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "toolCallLogJson",
+            "columnName": "tool_call_log_json",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "agentRounds",
+            "columnName": "agent_rounds",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        }
+      }
+    ],
+    "setupQueries": [
+      "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'ff0d08878c01ceae798a1762d6756d4f')"
+    ]
+  }
+}

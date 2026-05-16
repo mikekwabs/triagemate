@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    PLACEHOLDER — Replace this file with the actual Inter TTF files.
+
+    To enable Inter:
+    1. Go to https://fonts.google.com/specimen/Inter and click "Download family"
+    2. From the zip, copy these files into app/src/main/res/font/:
+         inter_regular.ttf   (Regular 400)
+         inter_medium.ttf    (Medium 500)
+         inter_semibold.ttf  (SemiBold 600)
+         inter_bold.ttf      (Bold 700)
+    3. In Type.kt, uncomment the InterFontFamily block and set:
+         private val Inter = InterFontFamily
+    4. Delete this file.
+-->
+<font-family/>
