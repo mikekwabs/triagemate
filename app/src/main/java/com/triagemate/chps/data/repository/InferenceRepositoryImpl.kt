@@ -406,6 +406,8 @@ class InferenceRepositoryImpl @Inject constructor(
             val autoRed = hasAutoRedSign(input)
             val toolResponses = mutableListOf<Content.ToolResponse>()
 
+            var referralNoteJustGenerated = false
+
             for (toolCall in toolCalls) {
                 when {
                     isVitalsRequestTool(toolCall.name) -> {
@@ -457,8 +459,18 @@ class InferenceRepositoryImpl @Inject constructor(
                     else -> {
                         val result = executeToolCall(toolCall)
                         toolResponses.add(Content.ToolResponse(toolCall.name, result))
+                        if (canonicalToolName(toolCall.name) == "generateReferralNote") {
+                            referralNoteJustGenerated = true
+                        }
                     }
                 }
+            }
+
+            if (referralNoteJustGenerated && clinicalToolSet.classifiedUrgency != null) {
+                Log.d(TAG, "continueConversation: generateReferralNote complete — finishing without another model round-trip")
+                closePausedSession()
+                closeConversationQuietly(conversation)
+                return buildCompleteResult(suppliedVitals, input)
             }
 
             currentMessage = try {
@@ -516,7 +528,26 @@ class InferenceRepositoryImpl @Inject constructor(
                 referralNote = argString(args, "referralNote")
             )
 
-            else -> throw IllegalStateException("Unknown tool call: ${toolCall.name}")
+            else -> {
+                Log.w(TAG, "executeToolCall: unknown tool '${toolCall.name}' — returning corrective response")
+                clinicalToolSet.recordSkippedToolCall(
+                    toolCall.name,
+                    "Unknown tool — not available in the triage loop",
+                    "Model asked for a tool outside the allowed set"
+                )
+                mapOf(
+                    "action" to "TOOL_NOT_AVAILABLE",
+                    "called_tool" to toolCall.name,
+                    "available_tools" to listOf(
+                        "assessSymptoms",
+                        "requestVitalSigns",
+                        "checkDrugInteraction",
+                        "classifyTriage",
+                        "generateReferralNote"
+                    ),
+                    "next_step" to "Call classifyTriage if not yet called, then generateReferralNote to finish."
+                )
+            }
         }
     }
 

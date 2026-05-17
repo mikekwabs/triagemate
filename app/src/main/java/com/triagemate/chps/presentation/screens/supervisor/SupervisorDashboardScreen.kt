@@ -42,6 +42,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import com.triagemate.chps.presentation.theme.PrimaryNavy
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -94,7 +95,7 @@ fun SupervisorDashboardScreen(
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = Color.White,
-                    titleContentColor = Color(0xFF155E75)
+                    titleContentColor = PrimaryNavy
                 )
             )
         }
@@ -260,7 +261,7 @@ fun SupervisorDashboardScreen(
                             .padding(horizontal = 16.dp)
                             .height(56.dp),
                         shape = RoundedCornerShape(16.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF155E75))
+                        colors = ButtonDefaults.buttonColors(containerColor = PrimaryNavy)
                     ) {
                         Text("View Case Log", fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
                         Spacer(Modifier.width(8.dp))
@@ -280,7 +281,7 @@ private fun CompoundHeader(name: String, district: String?, compoundId: String) 
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .background(Color(0xFF155E75))
+            .background(PrimaryNavy)
             .padding(horizontal = 16.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -303,7 +304,7 @@ private fun CompoundHeader(name: String, district: String?, compoundId: String) 
         Spacer(Modifier.width(8.dp))
         Box(
             modifier = Modifier
-                .background(Color(0xFF1E7A94), RoundedCornerShape(10.dp))
+                .background(PrimaryNavy, RoundedCornerShape(10.dp))
                 .padding(horizontal = 12.dp, vertical = 6.dp)
         ) {
             Text(
@@ -394,7 +395,7 @@ private fun ActivityChart(dailyCounts: List<SupervisorViewModel.DailyCount>) {
                         .weight(1f)
                         .height(barHeight)
                         .background(
-                            if (day.hasRedCase) Color(0xFFDC2626) else Color(0xFF155E75),
+                            if (day.hasRedCase) Color(0xFFDC2626) else PrimaryNavy,
                             RoundedCornerShape(topStart = 3.dp, topEnd = 3.dp)
                         )
                 )
@@ -423,7 +424,7 @@ private fun SymptomRow(
     isLast: Boolean
 ) {
     val textColor = if (isAutoRed) Color(0xFFDC2626) else Color(0xFF111827)
-    val barColor  = if (isAutoRed) Color(0xFFDC2626) else Color(0xFF155E75)
+    val barColor  = if (isAutoRed) Color(0xFFDC2626) else PrimaryNavy
     val maxBarWidth = 120.dp
     val barWidth = (count.toFloat() / maxCount * maxBarWidth.value).coerceAtLeast(8f).dp
 

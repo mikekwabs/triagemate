@@ -38,6 +38,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import com.triagemate.chps.presentation.theme.PrimaryNavy
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.triagemate.chps.presentation.theme.StepperTeal
@@ -191,7 +192,7 @@ fun SetupLocationScreen(
                         .height(56.dp),
                     shape = RoundedCornerShape(16.dp),
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = Color(0xFF155E75),
+                        containerColor = PrimaryNavy,
                         disabledContainerColor = Color(0xFFD1D5DB)
                     )
                 ) {

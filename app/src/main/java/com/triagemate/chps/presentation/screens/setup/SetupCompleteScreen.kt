@@ -27,6 +27,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import com.triagemate.chps.presentation.theme.PrimaryNavy
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -97,7 +98,7 @@ fun SetupCompleteScreen(
                     .fillMaxWidth()
                     .height(58.dp),
                 shape = RoundedCornerShape(18.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF155E75))
+                colors = ButtonDefaults.buttonColors(containerColor = PrimaryNavy)
             ) {
                 Text(
                     text = "Go to Home",

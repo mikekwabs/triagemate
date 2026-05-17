@@ -29,6 +29,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.triagemate.chps.presentation.theme.PrimaryNavy
 import com.triagemate.chps.presentation.theme.StepperTeal
 
 @Composable
@@ -92,7 +93,7 @@ fun SetupWelcomeScreen(
                     .fillMaxWidth()
                     .height(58.dp),
                 shape = RoundedCornerShape(16.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF155E75))
+                colors = ButtonDefaults.buttonColors(containerColor = PrimaryNavy)
             ) {
                 Text(
                     text = "Begin Setup",

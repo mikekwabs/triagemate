@@ -25,8 +25,11 @@ class TextToSpeechManager @Inject constructor(
 
     companion object {
         private const val TAG = "TextToSpeechManager"
+        private const val GOOGLE_TTS_PACKAGE = "com.google.android.tts"
+        private const val SAMSUNG_TTS_PACKAGE = "com.samsung.SMT"
     }
 
+    private val appContext = context.applicationContext
     private var tts: TextToSpeech? = null
 
     @Volatile var isReady: Boolean = false
@@ -37,53 +40,90 @@ class TextToSpeechManager @Inject constructor(
     private var onCompleteListener: (() -> Unit)? = null
 
     init {
-        tts = TextToSpeech(context.applicationContext) { status ->
-            if (status == TextToSpeech.SUCCESS) {
-                val locales = listOf(
-                    Locale("en", "GH"),
-                    Locale.UK,
-                    Locale.US,
-                    Locale.ENGLISH
-                )
-                val chosen = locales.firstOrNull { locale ->
-                    val result = tts?.isLanguageAvailable(locale) ?: TextToSpeech.LANG_MISSING_DATA
-                    result == TextToSpeech.LANG_AVAILABLE ||
-                        result == TextToSpeech.LANG_COUNTRY_AVAILABLE ||
-                        result == TextToSpeech.LANG_COUNTRY_VAR_AVAILABLE
-                }
-                if (chosen != null) {
-                    tts?.language = chosen
-                    isReady = true
-                    Log.d(TAG, "init: TTS ready with locale=$chosen")
-                } else {
-                    Log.w(TAG, "init: no supported English locale on device")
-                }
+        startInit(engine = null)
+    }
 
-                tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
-                    override fun onStart(utteranceId: String?) {
-                        isSpeaking = true
-                    }
-
-                    override fun onDone(utteranceId: String?) {
-                        isSpeaking = false
-                        onCompleteListener?.invoke()
-                    }
-
-                    @Deprecated("Required override")
-                    override fun onError(utteranceId: String?) {
-                        isSpeaking = false
-                        onCompleteListener?.invoke()
-                    }
-
-                    override fun onError(utteranceId: String?, errorCode: Int) {
-                        isSpeaking = false
-                        onCompleteListener?.invoke()
-                    }
-                })
-            } else {
-                Log.e(TAG, "init: TTS init failed status=$status")
-            }
+    private fun startInit(engine: String?) {
+        val previous = tts
+        tts = if (engine != null) {
+            TextToSpeech(appContext, ::handleInit, engine)
+        } else {
+            TextToSpeech(appContext, ::handleInit)
         }
+        // The old engine, if any, is replaced — release it so we don't leak.
+        try { previous?.shutdown() } catch (_: Exception) {}
+    }
+
+    private fun handleInit(status: Int) {
+        if (status != TextToSpeech.SUCCESS) {
+            Log.e(TAG, "init: TTS init failed status=$status — trying fallback engine")
+            tryFallbackEngine()
+            return
+        }
+
+        val locales = listOf(
+            Locale("en", "GH"),
+            Locale.UK,
+            Locale.US,
+            Locale.ENGLISH
+        )
+        val chosen = locales.firstOrNull { locale ->
+            val result = runCatching { tts?.isLanguageAvailable(locale) }
+                .getOrNull() ?: TextToSpeech.LANG_MISSING_DATA
+            result == TextToSpeech.LANG_AVAILABLE ||
+                result == TextToSpeech.LANG_COUNTRY_AVAILABLE ||
+                result == TextToSpeech.LANG_COUNTRY_VAR_AVAILABLE
+        }
+        if (chosen == null) {
+            Log.w(TAG, "init: no supported English locale on this engine — trying fallback")
+            tryFallbackEngine()
+            return
+        }
+
+        tts?.language = chosen
+        tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
+            override fun onStart(utteranceId: String?) {
+                isSpeaking = true
+            }
+
+            override fun onDone(utteranceId: String?) {
+                isSpeaking = false
+                onCompleteListener?.invoke()
+            }
+
+            @Deprecated("Required override")
+            override fun onError(utteranceId: String?) {
+                isSpeaking = false
+                onCompleteListener?.invoke()
+            }
+
+            override fun onError(utteranceId: String?, errorCode: Int) {
+                isSpeaking = false
+                onCompleteListener?.invoke()
+            }
+        })
+
+        isReady = true
+        Log.d(TAG, "init: TTS ready with locale=$chosen engine=${tts?.defaultEngine}")
+    }
+
+    private val triedEngines = mutableSetOf<String?>(null)
+
+    private fun tryFallbackEngine() {
+        val installed = runCatching { tts?.engines?.map { it.name } }
+            .getOrNull()
+            .orEmpty()
+        val preferred = listOf(GOOGLE_TTS_PACKAGE, SAMSUNG_TTS_PACKAGE)
+            .filter { it in installed }
+        val remaining = (preferred + installed).distinct().firstOrNull { it !in triedEngines }
+        if (remaining == null) {
+            Log.e(TAG, "init: no working TTS engine on this device — speak() will be a no-op")
+            isReady = false
+            return
+        }
+        triedEngines.add(remaining)
+        Log.d(TAG, "init: retrying with engine=$remaining")
+        startInit(remaining)
     }
 
     fun isCurrentlySpeaking(): Boolean = isSpeaking

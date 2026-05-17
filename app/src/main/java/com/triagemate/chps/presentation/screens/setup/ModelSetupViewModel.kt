@@ -13,7 +13,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import javax.inject.Inject
 
 @HiltViewModel
@@ -42,15 +41,19 @@ class ModelSetupViewModel @Inject constructor(
     }
 
     fun onDownloadComplete(onReady: () -> Unit) {
-        viewModelScope.launch {
-            Log.i(TAG, "onDownloadComplete: loading engine…")
+        // Navigate immediately — the engine load takes several seconds for a
+        // 2.58 GB model and blocks the UI button. Warm it up in the background
+        // so the first assessment is fast; the inference layer also calls
+        // ensureEngineReady() lazily and is mutex-guarded against double init.
+        onReady()
+        viewModelScope.launch(Dispatchers.IO) {
+            Log.i(TAG, "onDownloadComplete: warming engine in background…")
             try {
                 engineProvider.ensureEngineReady()
                 Log.i(TAG, "onDownloadComplete: engine ready")
             } catch (e: Exception) {
-                Log.e(TAG, "onDownloadComplete: engine load failed", e)
+                Log.e(TAG, "onDownloadComplete: engine warm-up failed", e)
             }
-            onReady()
         }
     }
 

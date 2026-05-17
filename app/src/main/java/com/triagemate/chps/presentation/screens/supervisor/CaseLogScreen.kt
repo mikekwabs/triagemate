@@ -48,6 +48,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import com.triagemate.chps.presentation.theme.PrimaryNavy
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
@@ -99,7 +100,7 @@ fun CaseLogScreen(
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = Color.White,
-                    titleContentColor = Color(0xFF155E75)
+                    titleContentColor = PrimaryNavy
                 )
             )
         }
@@ -132,7 +133,7 @@ fun CaseLogScreen(
                         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                         shape = RoundedCornerShape(12.dp),
                         colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = Color(0xFF155E75),
+                            focusedBorderColor = PrimaryNavy,
                             unfocusedBorderColor = Color(0xFFE5E7EB),
                             unfocusedContainerColor = Color.White,
                             focusedContainerColor = Color.White
@@ -199,7 +200,7 @@ private fun FilterChip(label: String, selected: Boolean, onClick: () -> Unit) {
             )
         },
         colors = AssistChipDefaults.assistChipColors(
-            containerColor = if (selected) Color(0xFF155E75) else Color.White,
+            containerColor = if (selected) PrimaryNavy else Color.White,
             labelColor = if (selected) Color.White else Color(0xFF374151)
         ),
         border = AssistChipDefaults.assistChipBorder(

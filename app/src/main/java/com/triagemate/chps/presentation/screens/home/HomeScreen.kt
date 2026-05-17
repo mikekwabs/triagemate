@@ -24,7 +24,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Archive
-import androidx.compose.material.icons.filled.Assignment
 import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Home
@@ -83,7 +82,6 @@ fun HomeScreen(
         topBar = { HomeTopBar(onSupervisorAccess) },
         bottomBar = {
             HomeBottomNav(
-                onAssessClick = {},
                 onHistoryClick = onViewHistory
             )
         },
@@ -338,7 +336,6 @@ private fun StatCard(
 
 @Composable
 private fun HomeBottomNav(
-    onAssessClick: () -> Unit,
     onHistoryClick: () -> Unit
 ) {
     NavigationBar(
@@ -350,19 +347,6 @@ private fun HomeBottomNav(
             onClick = {},
             icon = { Icon(Icons.Default.Home, contentDescription = "Home") },
             label = { Text("HOME", fontSize = 11.sp, fontWeight = FontWeight.Bold) },
-            colors = NavigationBarItemDefaults.colors(
-                selectedIconColor = Color.White,
-                selectedTextColor = NavyText,
-                indicatorColor = NavyText,
-                unselectedIconColor = SubtleGrey,
-                unselectedTextColor = SubtleGrey
-            )
-        )
-        NavigationBarItem(
-            selected = false,
-            onClick = onAssessClick,
-            icon = { Icon(Icons.Default.Assignment, contentDescription = "Assess") },
-            label = { Text("ASSESS", fontSize = 11.sp, fontWeight = FontWeight.Medium) },
             colors = NavigationBarItemDefaults.colors(
                 selectedIconColor = Color.White,
                 selectedTextColor = NavyText,
