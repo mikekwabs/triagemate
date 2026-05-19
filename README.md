@@ -220,8 +220,6 @@ app/src/main/java/com/triagemate/chps/
 └── di/                    # Hilt modules
 ```
 
-Schema-of-record for design context lives in `PROJECT_INDEX.md`.
-
 ---
 
 ## Troubleshooting
