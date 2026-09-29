@@ -164,12 +164,19 @@ class InferenceRepositoryImpl @Inject constructor(
 
             try {
                 Log.d(TAG, "runTriage: START pathway=${input.pathway}")
+                // Deterministic, so the app runs it instead of spending a model round on it.
+                val assessment = clinicalToolSet.assessSymptoms(
+                    pathway = input.pathway.name,
+                    symptoms = input.symptoms,
+                    patientAge = input.patientAge,
+                    patientSex = input.patientSex
+                )
                 val initialMessage = sendMessageMeasured(
                     conversation = conversation,
                     useCase = "triage_initial",
                     round = 1
                 ) {
-                    conversation.sendMessage(PromptBuilder.buildUserPrompt(input))
+                    conversation.sendMessage(PromptBuilder.buildUserPrompt(input, assessment))
                 }
                 continueConversation(
                     conversation = conversation,
@@ -604,12 +611,10 @@ class InferenceRepositoryImpl @Inject constructor(
     private fun executeToolCall(toolCall: ToolCall): Map<String, Any> {
         val args = toolCall.arguments
         return when (canonicalToolName(toolCall.name)) {
-            "assessSymptoms" -> clinicalToolSet.assessSymptoms(
-                pathway = argString(args, "pathway"),
-                symptoms = argString(args, "symptoms"),
-                patientAge = argString(args, "patientAge"),
-                patientSex = argString(args, "patientSex")
-            )
+            // No longer a model tool (the app pre-runs it). If the model asks anyway,
+            // hand back the existing result rather than recording a duplicate.
+            "assessSymptoms" -> clinicalToolSet.lastAssessment
+                ?: mapOf("note" to "Symptom assessment is already in the patient message.")
 
             "checkDrugInteraction" -> clinicalToolSet.checkDrugInteraction(
                 currentMedications = argString(args, "currentMedications"),
@@ -618,11 +623,7 @@ class InferenceRepositoryImpl @Inject constructor(
             )
 
             "classifyTriage" -> clinicalToolSet.classifyTriage(
-                pathway = argString(args, "pathway"),
-                symptoms = argString(args, "symptoms"),
                 dangerSigns = argString(args, "dangerSigns"),
-                vitalSigns = argString(args, "vitalSigns"),
-                drugInteractionStatus = argString(args, "drugInteractionStatus"),
                 urgency = argString(args, "urgency"),
                 action = argString(args, "action"),
                 confidence = argString(args, "confidence").ifBlank { "HIGH" }
@@ -639,7 +640,6 @@ class InferenceRepositoryImpl @Inject constructor(
                     "action" to "TOOL_NOT_AVAILABLE",
                     "called_tool" to toolCall.name,
                     "available_tools" to listOf(
-                        "assessSymptoms",
                         "requestVitalSigns",
                         "checkDrugInteraction",
                         "classifyTriage"
@@ -688,11 +688,10 @@ class InferenceRepositoryImpl @Inject constructor(
 
         Log.w(TAG, "recoverFromParseError: classifyTriage never ran — synthesising rule-based result")
 
-        val symptomList = input.symptoms.joinToString(",")
-        val assessResult = runCatching {
+        val assessResult = clinicalToolSet.lastAssessment ?: runCatching {
             clinicalToolSet.assessSymptoms(
                 pathway = input.pathway.name,
-                symptoms = symptomList,
+                symptoms = input.symptoms,
                 patientAge = input.patientAge,
                 patientSex = input.patientSex
             )
@@ -710,12 +709,7 @@ class InferenceRepositoryImpl @Inject constructor(
 
         runCatching {
             clinicalToolSet.classifyTriage(
-                pathway = input.pathway.name,
-                symptoms = symptomList,
                 dangerSigns = detectedDangerSigns.joinToString(","),
-                vitalSigns = suppliedVitals?.entries?.joinToString(",") { "${it.key}=${it.value}" }
-                    ?: "not_collected",
-                drugInteractionStatus = "not_checked",
                 urgency = urgency,
                 action = action,
                 confidence = "LOW"

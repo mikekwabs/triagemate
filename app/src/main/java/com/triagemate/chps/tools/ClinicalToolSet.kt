@@ -13,9 +13,10 @@ import org.json.JSONObject
 /**
  * Tools exposed to the agentic triage conversation, plus the case state they collect.
  * Every @Tool here has its schema prefilled at the start of each triage, so only the
- * tools the triage loop actually uses belong here: photo and explanation tools live in
- * [VisualToolSet] and [ExplanationToolSet]. The referral note is written by the app
- * ([recordReferralNote]), not by the model.
+ * tools the model actually needs belong here: photo and explanation tools live in
+ * [VisualToolSet] and [ExplanationToolSet]. Deterministic steps are run by the app
+ * instead of the model: [assessSymptoms] before the first turn, [recordReferralNote]
+ * after classification.
  */
 class ClinicalToolSet : ToolSet {
 
@@ -47,6 +48,9 @@ class ClinicalToolSet : ToolSet {
         private set
     var drugInteractionResult: String? = null
         private set
+    /** Result of the pre-run [assessSymptoms] for the current case. */
+    var lastAssessment: Map<String, Any>? = null
+        private set
 
     private var suppliedVitals: Map<String, String>? = null
 
@@ -64,6 +68,7 @@ class ClinicalToolSet : ToolSet {
         vitalsRequested = false
         requiredVitalsList = emptyList()
         drugInteractionResult = null
+        lastAssessment = null
         suppliedVitals = null
     }
 
@@ -111,14 +116,19 @@ class ClinicalToolSet : ToolSet {
         else -> result.toString()
     }
 
-    @Tool(description = "Perform initial symptom assessment. Analyse presenting symptoms against WHO IMCI guidelines (children under 5) or Ghana Health Service antenatal protocols. Identify danger signs and determine if additional data is needed. Always call this first.")
+    /**
+     * Rule-based symptom assessment. Not a @Tool: the app runs it before the first model
+     * turn and puts the result in the patient prompt, which saves the model a full round
+     * (generating the call, then reading the response). Takes a list because checklist
+     * labels can contain commas ("Swollen face, hands or feet").
+     */
     fun assessSymptoms(
-        @ToolParam(description = "Clinical pathway: CHILD_U5 or ANTENATAL") pathway: String,
-        @ToolParam(description = "Comma-separated presenting symptoms") symptoms: String,
-        @ToolParam(description = "Patient age in months (children) or gestational weeks (antenatal)") patientAge: String,
-        @ToolParam(description = "Patient sex: MALE or FEMALE") patientSex: String
+        pathway: String,
+        symptoms: List<String>,
+        patientAge: String,
+        patientSex: String
     ): Map<String, Any> {
-        val normalizedSymptoms = symptoms.split(",")
+        val normalizedSymptoms = symptoms
             .map { it.trim() }
             .filter { it.isNotEmpty() }
 
@@ -138,7 +148,8 @@ class ClinicalToolSet : ToolSet {
             "patient_age" to patientAge,
             "patient_sex" to patientSex
         )
-        record("assessSymptoms", "$pathway|$symptoms|$patientAge|$patientSex", result)
+        lastAssessment = result
+        record("assessSymptoms", "$pathway|${normalizedSymptoms.joinToString(",")}|$patientAge|$patientSex", result)
         return result
     }
 
@@ -232,13 +243,11 @@ class ClinicalToolSet : ToolSet {
     }
 
     @Tool(description = "Final triage classification and the LAST tool call. Call after all data gathered; the app writes the referral note from these fields. RED = refer urgently within 4 hours. AMBER = refer non-urgently, review 24-48h. GREEN = manage locally.")
+    // Only the decisions the model makes. Pathway, symptoms, vitals and drug-check status
+    // are already known to the app; asking the model to restate them cost decode tokens.
     fun classifyTriage(
-        @ToolParam(description = "Clinical pathway: CHILD_U5 or ANTENATAL") pathway: String,
-        @ToolParam(description = "All presenting symptoms") symptoms: String,
-        @ToolParam(description = "Confirmed danger signs from assessment") dangerSigns: String,
-        @ToolParam(description = "Vital signs if collected, or 'not_collected'") vitalSigns: String,
-        @ToolParam(description = "Drug interaction status if checked, or 'not_checked'") drugInteractionStatus: String,
         @ToolParam(description = "Urgency classification: RED, AMBER, or GREEN") urgency: String,
+        @ToolParam(description = "Comma-separated danger signs confirmed for this patient, or 'none'") dangerSigns: String,
         @ToolParam(description = "Recommended action for the CHO, max 2 sentences") action: String,
         @ToolParam(description = "Confidence in this classification: HIGH, MEDIUM, or LOW") confidence: String = "HIGH"
     ): Map<String, Any> {
@@ -250,8 +259,8 @@ class ClinicalToolSet : ToolSet {
             "urgency" to urgency,
             "action" to action,
             "danger_signs" to classifiedDangerSigns,
-            "vital_signs" to vitalSigns,
-            "drug_interaction" to drugInteractionStatus,
+            "vital_signs" to (suppliedVitals?.filterValues(String::isNotBlank)?.takeIf { it.isNotEmpty() } ?: "not_collected"),
+            "drug_interaction" to (drugInteractionResult ?: "not_checked"),
             "confidence" to classifiedConfidence
         )
         record("classifyTriage", "$urgency|$dangerSigns|$action", result)
