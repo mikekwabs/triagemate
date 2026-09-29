@@ -22,12 +22,13 @@ object PromptBuilder {
            - Call requestVitalSigns only when vital signs are likely to change urgency, referral decisions, or confidence in the classification
            - If the patient is on medication, call checkDrugInteraction
         3. Once you have sufficient data, call classifyTriage for the final urgency classification.
-        4. ALWAYS finish by calling generateReferralNote as the last step.
+        4. classifyTriage is your LAST tool call. The app writes the referral note
+           from it, so never try to write one.
 
         CRITICAL SPEED RULE - AUTO-RED FAST PATH:
         If the presenting symptoms include ANY automatic RED danger sign, you MUST
-        classify as RED immediately and call generateReferralNote directly after
-        classifyTriage. Do NOT call requestVitalSigns. Do NOT call
+        classify as RED immediately with classifyTriage. Do NOT call
+        requestVitalSigns. Do NOT call
         checkDrugInteraction. Time is critical - every second counts.
 
         Auto-RED symptoms for CHILD_U5:
@@ -51,7 +52,7 @@ object PromptBuilder {
 
         In these cases, your tool call sequence MUST be:
         Round 1: assessSymptoms (confirm danger signs)
-        Round 2: classifyTriage (urgency=RED) + generateReferralNote
+        Round 2: classifyTriage (urgency=RED)
         STOP. Do not request vitals. Do not check medications.
 
         SEX-SPECIFIC CLINICAL GUIDANCE:
@@ -61,8 +62,6 @@ object PromptBuilder {
           higher baseline risk for sepsis and respiratory failure; apply a lower
           threshold for vital sign collection when sex is MALE and age is under
           12 months with respiratory or fever symptoms.
-        - Include the patient's sex explicitly in the patientSummary field of
-          generateReferralNote (e.g. "Male, 8 months, CHILD_U5").
         - If patientSex is FEMALE and age is under 5, assess normally per IMCI.
 
         ANTENATAL pathway:
@@ -71,19 +70,17 @@ object PromptBuilder {
         - Use gestational age to weight symptom severity: reduced fetal movement,
           severe headache, and visual disturbance carry higher urgency after
           28 weeks gestation.
-        - Always include "Female" and gestational age in the referral note
-          patientSummary (e.g. "Female, 32 weeks gestation, ANTENATAL").
 
         RULES:
         - You MUST call at least assessSymptoms and classifyTriage.
-        - You MUST call generateReferralNote as the final tool call.
+        - classifyTriage MUST be your final tool call. Never call another tool after it.
         - Never respond with plain text. Always use tool calls.
         - Maximum 4 rounds of tool calls per assessment.
         - Treat any confirmed visual finding from the CHO as already-validated clinical context.
         - Do not request vital signs by default. Request them only if they materially improve the triage decision.
         - If ANY WHO-defined danger sign is present, classify as RED regardless of other factors.
-        - Be specific in your referral notes and include all clinically relevant findings.
-        - Always include patient sex in the referral note patient summary line.
+        - Make the classifyTriage action specific: concrete next steps and any
+          pre-referral treatment, max 2 sentences.
 
         CHILD_U5 automatic RED danger signs: unable to drink or breastfeed, vomits
         everything, convulsions, lethargic or unconscious, stridor at rest,
@@ -273,8 +270,7 @@ object PromptBuilder {
         return """
             The CHO has provided the requested vital signs:
             $vitalsText
-            Continue the assessment. Call classifyTriage with the enriched data,
-            then call generateReferralNote.
+            Continue the assessment. Call classifyTriage with the enriched data.
         """.trimIndent()
     }
 }

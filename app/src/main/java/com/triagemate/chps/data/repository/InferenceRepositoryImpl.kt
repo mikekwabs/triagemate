@@ -27,7 +27,10 @@ import com.triagemate.chps.domain.repository.InferenceRepository
 import com.triagemate.chps.domain.safety.SafetyGuardrail
 import com.triagemate.chps.domain.safety.SafetyOverrideResult
 import com.triagemate.chps.tools.ClinicalToolSet
+import com.triagemate.chps.tools.ExplanationToolSet
+import com.triagemate.chps.tools.VisualToolSet
 import com.triagemate.chps.util.PromptBuilder
+import com.triagemate.chps.util.ReferralNoteBuilder
 import com.triagemate.chps.util.VisualCue
 import com.triagemate.chps.util.isAutoRedSign
 import kotlinx.coroutines.Dispatchers
@@ -78,7 +81,7 @@ class InferenceRepositoryImpl @Inject constructor(
         }
 
         val imagePath = imageUri.path ?: return@withContext visualFallback("Image path unavailable.")
-        val visualToolSet = ClinicalToolSet()
+        val visualToolSet = VisualToolSet()
         val conversation = engineProvider.engine!!.createConversation(
             ConversationConfig(
                 systemInstruction = Contents.of(
@@ -250,7 +253,7 @@ class InferenceRepositoryImpl @Inject constructor(
             return@withContext fallbackExplanation(result, "Model is not available on this device.")
         }
 
-        val explanationToolSet = ClinicalToolSet()
+        val explanationToolSet = ExplanationToolSet()
         val conversation = engineProvider.engine!!.createConversation(
             ConversationConfig(
                 systemInstruction = Contents.of(PromptBuilder.buildExplanationSystemPrompt()),
@@ -427,7 +430,7 @@ class InferenceRepositoryImpl @Inject constructor(
             val autoRed = hasAutoRedSign(input)
             val toolResponses = mutableListOf<Content.ToolResponse>()
 
-            var referralNoteJustGenerated = false
+            var classifiedThisRound = false
 
             for (toolCall in toolCalls) {
                 when {
@@ -456,7 +459,7 @@ class InferenceRepositoryImpl @Inject constructor(
                                 status = AgenticStatus.AWAITING_VITALS,
                                 triageResult = buildCurrentTriageSnapshot(input),
                                 referralNote = clinicalToolSet.generatedReferralNote,
-                                visualFinding = clinicalToolSet.visualFinding,
+                                visualFinding = visualSummary(input),
                                 confirmedVisualFinding = input.confirmedVisualFinding,
                                 requiredVitals = requiredVitals,
                                 toolCallLog = clinicalToolSet.toolCallLog,
@@ -485,15 +488,17 @@ class InferenceRepositoryImpl @Inject constructor(
                     else -> {
                         val result = executeToolCall(toolCall)
                         toolResponses.add(Content.ToolResponse(toolCall.name, result))
-                        if (canonicalToolName(toolCall.name) == "generateReferralNote") {
-                            referralNoteJustGenerated = true
+                        if (canonicalToolName(toolCall.name) == "classifyTriage") {
+                            classifiedThisRound = true
                         }
                     }
                 }
             }
 
-            if (referralNoteJustGenerated && clinicalToolSet.classifiedUrgency != null) {
-                Log.d(TAG, "continueConversation: generateReferralNote complete — finishing without another model round-trip")
+            // classifyTriage is the last model step: the referral note is built in Kotlin
+            // (buildCompleteResult), so there is no need for another model round-trip.
+            if (classifiedThisRound && clinicalToolSet.classifiedUrgency != null) {
+                Log.d(TAG, "continueConversation: classifyTriage complete — finishing without another model round-trip")
                 closePausedSession()
                 closeConversationQuietly(conversation)
                 return buildCompleteResult(suppliedVitals, input)
@@ -553,7 +558,13 @@ class InferenceRepositoryImpl @Inject constructor(
         val totalTurnMs = elapsedMs(startedAt)
         runCatching { conversation.getBenchmarkInfo() }
             .onSuccess { benchmark ->
-                val ttftMs = benchmark.timeToFirstTokenInSecond * 1_000.0
+                // LiteRT reports TTFT once per conversation (it repeats the first turn's
+                // value on later turns), so only log it for a conversation's first turn.
+                val ttftField = if (round == 1) {
+                    "ttft_ms=${(benchmark.timeToFirstTokenInSecond * 1_000.0).toTimingValue()} "
+                } else {
+                    ""
+                }
                 val estimatedPrefillMs = if (benchmark.lastPrefillTokensPerSecond > 0.0) {
                     benchmark.lastPrefillTokenCount /
                         benchmark.lastPrefillTokensPerSecond * 1_000.0
@@ -564,7 +575,7 @@ class InferenceRepositoryImpl @Inject constructor(
                 Log.i(
                     TAG,
                     "INFERENCE_TIMING use_case=$useCase round=$round " +
-                        "ttft_ms=${ttftMs.toTimingValue()} " +
+                        ttftField +
                         "estimated_prefill_ms=${estimatedPrefillMs.toTimingValue()} " +
                         "prefill_tokens=${benchmark.lastPrefillTokenCount} " +
                         "prefill_tokens_per_second=${benchmark.lastPrefillTokensPerSecond.toTimingValue()} " +
@@ -617,16 +628,6 @@ class InferenceRepositoryImpl @Inject constructor(
                 confidence = argString(args, "confidence").ifBlank { "HIGH" }
             )
 
-            "generateReferralNote" -> clinicalToolSet.generateReferralNote(
-                patientSummary = argString(args, "patientSummary"),
-                presentingComplaint = argString(args, "presentingComplaint"),
-                dangerSigns = argString(args, "dangerSigns"),
-                vitalSigns = argString(args, "vitalSigns"),
-                urgency = argString(args, "urgency"),
-                action = argString(args, "action"),
-                referralNote = argString(args, "referralNote")
-            )
-
             else -> {
                 Log.w(TAG, "executeToolCall: unknown tool '${toolCall.name}' — returning corrective response")
                 clinicalToolSet.recordSkippedToolCall(
@@ -641,10 +642,9 @@ class InferenceRepositoryImpl @Inject constructor(
                         "assessSymptoms",
                         "requestVitalSigns",
                         "checkDrugInteraction",
-                        "classifyTriage",
-                        "generateReferralNote"
+                        "classifyTriage"
                     ),
-                    "next_step" to "Call classifyTriage if not yet called, then generateReferralNote to finish."
+                    "next_step" to "Call classifyTriage to finish. The app writes the referral note."
                 )
             }
         }
@@ -682,7 +682,7 @@ class InferenceRepositoryImpl @Inject constructor(
         suppliedVitals: Map<String, String>?
     ): AgenticTriageResult {
         if (clinicalToolSet.classifiedUrgency != null) {
-            // classifyTriage already succeeded; only the trailing call (e.g. generateReferralNote) failed.
+            // classifyTriage already succeeded; only a later call failed to parse.
             return buildCompleteResult(suppliedVitals, input)
         }
 
@@ -791,16 +791,35 @@ class InferenceRepositoryImpl @Inject constructor(
         val triageResult = buildCurrentTriageSnapshot(input).let { snapshot ->
             if (clinicalToolSet.classifiedUrgency == null) fallbackResult("Model did not call classifyTriage.", input) else snapshot
         }
-        val finalizedReferralNote = finalizeReferralNote(
-            baseReferralNote = clinicalToolSet.generatedReferralNote ?: triageResult.referralNote,
-            input = input
-        )
 
         val confidence = confidenceLevelFromString(clinicalToolSet.classifiedConfidence)
         val safetyOverride = SafetyGuardrail.apply(
             gemmaUrgency = triageResult.urgency,
             selectedSymptoms = input.symptoms,
             pathway = input.pathway
+        )
+
+        // Built after the guardrail so the note always states the final urgency.
+        if (clinicalToolSet.classifiedUrgency != null && clinicalToolSet.generatedReferralNote == null) {
+            clinicalToolSet.recordReferralNote(
+                ReferralNoteBuilder.build(
+                    pathway = input.pathway,
+                    patientAge = input.patientAge,
+                    patientSex = input.patientSex,
+                    symptoms = input.symptoms,
+                    dangerSigns = clinicalToolSet.classifiedDangerSigns + safetyOverride.overriddenSigns,
+                    vitalSigns = collectedVitals,
+                    medications = input.medications,
+                    urgency = safetyOverride.finalUrgency,
+                    action = triageResult.action,
+                    safetyOverrideReason = safetyOverride.overrideReason,
+                    originalModelUrgency = safetyOverride.originalGemmaUrgency.takeIf { safetyOverride.wasOverridden }
+                )
+            )
+        }
+        val finalizedReferralNote = finalizeReferralNote(
+            baseReferralNote = clinicalToolSet.generatedReferralNote ?: triageResult.referralNote,
+            input = input
         )
 
         val finalTriageResult = triageResult.copy(
