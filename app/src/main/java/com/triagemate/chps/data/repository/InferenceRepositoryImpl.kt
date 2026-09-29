@@ -1,11 +1,13 @@
 package com.triagemate.chps.data.repository
 
 import android.net.Uri
+import android.os.SystemClock
 import android.util.Log
 import com.google.ai.edge.litertlm.Content
 import com.google.ai.edge.litertlm.Contents
 import com.google.ai.edge.litertlm.Conversation
 import com.google.ai.edge.litertlm.ConversationConfig
+import com.google.ai.edge.litertlm.ExperimentalApi
 import com.google.ai.edge.litertlm.Message
 import com.google.ai.edge.litertlm.SamplerConfig
 import com.google.ai.edge.litertlm.ToolCall
@@ -32,6 +34,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import java.util.Locale
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -56,7 +59,8 @@ class InferenceRepositoryImpl @Inject constructor(
     private data class PausedSession(
         val conversation: Conversation,
         val input: TriageInput,
-        val pendingVitalToolCall: ToolCall
+        val pendingVitalToolCall: ToolCall,
+        val nextModelRound: Int
     )
 
     private val clinicalToolSet = ClinicalToolSet()
@@ -87,12 +91,18 @@ class InferenceRepositoryImpl @Inject constructor(
         )
 
         try {
-            val message = conversation.sendMessage(
-                Contents.of(
-                    Content.ImageFile(imagePath),
-                    Content.Text(PromptBuilder.buildVisualPrompt(visualCue, selectedSymptoms, pathway))
+            val message = sendMessageMeasured(
+                conversation = conversation,
+                useCase = "visual_analysis",
+                round = 1
+            ) {
+                conversation.sendMessage(
+                    Contents.of(
+                        Content.ImageFile(imagePath),
+                        Content.Text(PromptBuilder.buildVisualPrompt(visualCue, selectedSymptoms, pathway))
+                    )
                 )
-            )
+            }
 
             val toolCall = message.toolCalls.firstOrNull()
                 ?: return@withContext visualFallback("Tool not called.")
@@ -151,12 +161,19 @@ class InferenceRepositoryImpl @Inject constructor(
 
             try {
                 Log.d(TAG, "runTriage: START pathway=${input.pathway}")
-                val initialMessage = conversation.sendMessage(PromptBuilder.buildUserPrompt(input))
+                val initialMessage = sendMessageMeasured(
+                    conversation = conversation,
+                    useCase = "triage_initial",
+                    round = 1
+                ) {
+                    conversation.sendMessage(PromptBuilder.buildUserPrompt(input))
+                }
                 continueConversation(
                     conversation = conversation,
                     input = input,
                     initialMessage = initialMessage,
-                    suppliedVitals = null
+                    suppliedVitals = null,
+                    initialModelRound = 1
                 )
             } catch (e: Exception) {
                 closeConversationQuietly(conversation)
@@ -187,22 +204,29 @@ class InferenceRepositoryImpl @Inject constructor(
                 clinicalToolSet.completePendingVitalRequest(toolResponsePayload)
                 clinicalToolSet.supplyVitals(vitalSigns)
 
-                val modelMessage = session.conversation.sendMessage(
-                    Message.tool(
-                        Contents.of(
-                            Content.ToolResponse(
-                                session.pendingVitalToolCall.name,
-                                toolResponsePayload
+                val modelMessage = sendMessageMeasured(
+                    conversation = session.conversation,
+                    useCase = "triage_vitals_response",
+                    round = session.nextModelRound
+                ) {
+                    session.conversation.sendMessage(
+                        Message.tool(
+                            Contents.of(
+                                Content.ToolResponse(
+                                    session.pendingVitalToolCall.name,
+                                    toolResponsePayload
+                                )
                             )
                         )
                     )
-                )
+                }
 
                 continueConversation(
                     conversation = session.conversation,
                     input = session.input,
                     initialMessage = modelMessage,
-                    suppliedVitals = vitalSigns
+                    suppliedVitals = vitalSigns,
+                    initialModelRound = session.nextModelRound
                 )
             } catch (e: Exception) {
                 Log.e(TAG, "resumeWithVitals: EXCEPTION — ${e.message}", e)
@@ -237,9 +261,15 @@ class InferenceRepositoryImpl @Inject constructor(
         )
 
         try {
-            val message = conversation.sendMessage(
-                PromptBuilder.buildExplanationPrompt(result, input, safetyOverride)
-            )
+            val message = sendMessageMeasured(
+                conversation = conversation,
+                useCase = "clinical_explanation",
+                round = 1
+            ) {
+                conversation.sendMessage(
+                    PromptBuilder.buildExplanationPrompt(result, input, safetyOverride)
+                )
+            }
             val toolCall = message.toolCalls.firstOrNull()
             if (toolCall == null || canonicalToolName(toolCall.name) != "generateClinicalExplanation") {
                 Log.w(TAG, "generateClinicalExplanation: tool was not called — using fallback")
@@ -289,12 +319,18 @@ class InferenceRepositoryImpl @Inject constructor(
         )
 
         try {
-            val message = conversation.sendMessage(
-                Contents.of(
-                    Content.AudioBytes(audioBytes),
-                    Content.Text(PromptBuilder.buildVoicePrompt(pathway, canonicalSymptoms))
+            val message = sendMessageMeasured(
+                conversation = conversation,
+                useCase = "voice_translation",
+                round = 1
+            ) {
+                conversation.sendMessage(
+                    Contents.of(
+                        Content.AudioBytes(audioBytes),
+                        Content.Text(PromptBuilder.buildVoicePrompt(pathway, canonicalSymptoms))
+                    )
                 )
-            )
+            }
 
             val text = message.contents.contents
                 .filterIsInstance<Content.Text>()
@@ -374,9 +410,11 @@ class InferenceRepositoryImpl @Inject constructor(
         conversation: Conversation,
         input: TriageInput,
         initialMessage: Message,
-        suppliedVitals: Map<String, String>?
+        suppliedVitals: Map<String, String>?,
+        initialModelRound: Int
     ): AgenticTriageResult {
         var currentMessage = initialMessage
+        var modelRound = initialModelRound
 
         repeat(MAX_LOOP_MESSAGES) {
             val toolCalls = currentMessage.toolCalls
@@ -408,7 +446,12 @@ class InferenceRepositoryImpl @Inject constructor(
                         } else {
                             val requiredVitals = parseRequiredVitals(toolCall)
                             clinicalToolSet.recordPendingVitalRequest(requiredVitals)
-                            pausedSession = PausedSession(conversation, input, toolCall)
+                            pausedSession = PausedSession(
+                                conversation = conversation,
+                                input = input,
+                                pendingVitalToolCall = toolCall,
+                                nextModelRound = modelRound + 1
+                            )
                             return AgenticTriageResult(
                                 status = AgenticStatus.AWAITING_VITALS,
                                 triageResult = buildCurrentTriageSnapshot(input),
@@ -456,8 +499,17 @@ class InferenceRepositoryImpl @Inject constructor(
                 return buildCompleteResult(suppliedVitals, input)
             }
 
+            val nextModelRound = modelRound + 1
             currentMessage = try {
-                conversation.sendMessage(Message.tool(Contents.of(toolResponses)))
+                sendMessageMeasured(
+                    conversation = conversation,
+                    useCase = "triage_tool_response",
+                    round = nextModelRound
+                ) {
+                    conversation.sendMessage(Message.tool(Contents.of(toolResponses)))
+                }.also {
+                    modelRound = nextModelRound
+                }
             } catch (e: Exception) {
                 if (isToolCallParseError(e)) {
                     Log.w(TAG, "continueConversation: malformed tool call — recovering (classifiedUrgency=${clinicalToolSet.classifiedUrgency})")
@@ -473,6 +525,70 @@ class InferenceRepositoryImpl @Inject constructor(
         closeConversationQuietly(conversation)
         return errorResult("Model exceeded the maximum tool-call rounds.", input)
     }
+
+    /**
+     * Measures one complete model turn without changing the synchronous inference flow.
+     * LiteRT's native benchmark data supplies TTFT and token throughput after the turn.
+     */
+    @OptIn(ExperimentalApi::class)
+    private inline fun sendMessageMeasured(
+        conversation: Conversation,
+        useCase: String,
+        round: Int,
+        send: () -> Message
+    ): Message {
+        val startedAt = SystemClock.elapsedRealtimeNanos()
+        val message = try {
+            send()
+        } catch (exception: Exception) {
+            Log.e(
+                TAG,
+                "INFERENCE_TIMING use_case=$useCase round=$round " +
+                    "failed_after_ms=${elapsedMs(startedAt)}",
+                exception
+            )
+            throw exception
+        }
+
+        val totalTurnMs = elapsedMs(startedAt)
+        runCatching { conversation.getBenchmarkInfo() }
+            .onSuccess { benchmark ->
+                val ttftMs = benchmark.timeToFirstTokenInSecond * 1_000.0
+                val estimatedPrefillMs = if (benchmark.lastPrefillTokensPerSecond > 0.0) {
+                    benchmark.lastPrefillTokenCount /
+                        benchmark.lastPrefillTokensPerSecond * 1_000.0
+                } else {
+                    Double.NaN
+                }
+
+                Log.i(
+                    TAG,
+                    "INFERENCE_TIMING use_case=$useCase round=$round " +
+                        "ttft_ms=${ttftMs.toTimingValue()} " +
+                        "estimated_prefill_ms=${estimatedPrefillMs.toTimingValue()} " +
+                        "prefill_tokens=${benchmark.lastPrefillTokenCount} " +
+                        "prefill_tokens_per_second=${benchmark.lastPrefillTokensPerSecond.toTimingValue()} " +
+                        "decode_tokens=${benchmark.lastDecodeTokenCount} " +
+                        "decode_tokens_per_second=${benchmark.lastDecodeTokensPerSecond.toTimingValue()} " +
+                        "total_turn_ms=$totalTurnMs backend=${engineProvider.activeBackend}"
+                )
+            }
+            .onFailure { exception ->
+                Log.w(
+                    TAG,
+                    "INFERENCE_TIMING use_case=$useCase round=$round total_turn_ms=$totalTurnMs " +
+                        "benchmark_unavailable=${exception.message}"
+                )
+            }
+
+        return message
+    }
+
+    private fun elapsedMs(startNanos: Long): Long =
+        (SystemClock.elapsedRealtimeNanos() - startNanos) / 1_000_000L
+
+    private fun Double.toTimingValue(): String =
+        if (isFinite()) String.format(Locale.US, "%.2f", this) else "unavailable"
 
     private fun executeToolCall(toolCall: ToolCall): Map<String, Any> {
         val args = toolCall.arguments
