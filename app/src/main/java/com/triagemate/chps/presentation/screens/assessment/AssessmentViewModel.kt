@@ -16,6 +16,7 @@ import com.triagemate.chps.domain.repository.InferenceRepository
 import com.triagemate.chps.util.AudioRecorderManager
 import com.triagemate.chps.domain.usecase.RunTriageUseCase
 import com.triagemate.chps.domain.usecase.SaveAssessmentUseCase
+import com.triagemate.chps.domain.safety.VitalsValidator
 import com.triagemate.chps.util.CameraTier
 import com.triagemate.chps.util.ImageQualityChecker
 import com.triagemate.chps.util.VisualCue
@@ -348,7 +349,12 @@ class AssessmentViewModel @Inject constructor(
             error.value = null
 
             try {
-                val agenticResult = inferenceRepository.resumeWithVitals(vitalSignValues.value)
+                // The sheet's Submit button is disabled while any value is implausible. This is a
+                // second line of defence: such values never reach the model or the safety rules.
+                val plausibleVitals = vitalSignValues.value.filter { (key, value) ->
+                    VitalsValidator.error(key, value) == null
+                }
+                val agenticResult = inferenceRepository.resumeWithVitals(plausibleVitals)
                 handleAgenticResult(agenticResult, input, onSuccess)
             } catch (e: Exception) {
                 isLoading.value = false

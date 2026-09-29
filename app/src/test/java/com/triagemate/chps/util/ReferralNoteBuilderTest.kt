@@ -36,7 +36,7 @@ class ReferralNoteBuilderTest {
             "Patient: Male, 8 months, Child Under 5",
             "Presenting symptoms: Fever, Diarrhoea",
             "Danger signs: None identified",
-            "Vital signs: temperature 38.9, respiratory rate 48",
+            "Vital signs: temperature 38.9 °C, respiratory rate 48/min",
             "Current medications: None reported",
             "Recommended action: Refer to the health centre for review within 24 hours."
         ).joinToString("\n")

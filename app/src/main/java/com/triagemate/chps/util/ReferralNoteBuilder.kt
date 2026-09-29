@@ -1,6 +1,7 @@
 package com.triagemate.chps.util
 
 import com.triagemate.chps.domain.model.Pathway
+import com.triagemate.chps.domain.safety.VitalSigns
 
 /**
  * Builds the referral note from the finished triage in Kotlin instead of asking the
@@ -75,7 +76,15 @@ object ReferralNoteBuilder {
         val provided = vitalSigns.orEmpty().filterValues(String::isNotBlank)
         if (provided.isEmpty()) return "Not collected"
         return provided.entries.joinToString(", ") { (key, value) ->
-            "${key.replace('_', ' ')} ${value.trim()}"
+            val v = value.trim()
+            when (VitalSigns.canonicalKey(key)) {
+                VitalSigns.TEMPERATURE -> "temperature $v °C"
+                VitalSigns.RESPIRATORY_RATE -> "respiratory rate $v/min"
+                VitalSigns.PULSE -> "pulse $v bpm"
+                VitalSigns.BLOOD_PRESSURE -> "blood pressure $v mmHg"
+                VitalSigns.OXYGEN_SATURATION -> "SpO₂ $v%"
+                else -> "${key.replace('_', ' ')} $v"
+            }
         }
     }
 }
