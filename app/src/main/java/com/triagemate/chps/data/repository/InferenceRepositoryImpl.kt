@@ -361,7 +361,8 @@ class InferenceRepositoryImpl @Inject constructor(
         return ClinicalExplanation(
             whyThisClassification = "${defaultWhy(result)} ($reason)",
             whatToWatchFor = defaultWatchFor(result),
-            clinicalReference = "WHO IMCI / Ghana Health Service guidelines"
+            clinicalReference = "WHO IMCI / Ghana Health Service guidelines",
+            isFallback = true
         )
     }
 

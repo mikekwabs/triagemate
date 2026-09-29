@@ -57,5 +57,13 @@ data class AssessmentEntity(
     @ColumnInfo(name = "original_gemma_urgency")
     val originalGemmaUrgency: String? = null,
     @ColumnInfo(name = "confidence_level", defaultValue = "HIGH")
-    val confidenceLevel: String = "HIGH"
+    val confidenceLevel: String = "HIGH",
+    @ColumnInfo(name = "explanation_why")
+    val explanationWhy: String? = null,
+    @ColumnInfo(name = "explanation_watch_for")
+    val explanationWatchFor: String? = null,
+    @ColumnInfo(name = "explanation_reference")
+    val explanationReference: String? = null,
+    @ColumnInfo(name = "explanation_generated_at")
+    val explanationGeneratedAt: Long? = null
 )

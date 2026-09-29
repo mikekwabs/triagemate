@@ -7,6 +7,7 @@ import com.triagemate.chps.data.local.db.AssessmentDao
 import com.triagemate.chps.data.local.model.AssessmentEntity
 import com.triagemate.chps.data.local.prefs.CompoundPreferences
 import com.triagemate.chps.domain.model.AgenticTriageResult
+import com.triagemate.chps.domain.model.ClinicalExplanation
 import com.triagemate.chps.domain.model.ConfidenceLevel
 import com.triagemate.chps.domain.model.HistoryEntry
 import com.triagemate.chps.domain.model.Pathway
@@ -105,6 +106,27 @@ class AssessmentRepositoryImpl @Inject constructor(
                 )
             }
         }
+    }
+
+    override suspend fun getExplanationById(id: Long): ClinicalExplanation? {
+        val entity = assessmentDao.getAssessmentById(id) ?: return null
+        val why = entity.explanationWhy ?: return null
+        return ClinicalExplanation(
+            whyThisClassification = why,
+            whatToWatchFor = entity.explanationWatchFor.orEmpty(),
+            clinicalReference = entity.explanationReference.orEmpty(),
+            generatedAt = entity.explanationGeneratedAt ?: entity.timestamp
+        )
+    }
+
+    override suspend fun saveExplanation(id: Long, explanation: ClinicalExplanation) {
+        assessmentDao.updateExplanation(
+            id = id,
+            why = explanation.whyThisClassification,
+            watchFor = explanation.whatToWatchFor,
+            reference = explanation.clinicalReference,
+            generatedAt = explanation.generatedAt
+        )
     }
 
     override suspend fun deleteHistory() {

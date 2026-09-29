@@ -23,6 +23,12 @@ interface AssessmentDao {
     @Query("SELECT * FROM assessments WHERE id = :id")
     suspend fun getAssessmentById(id: Long): AssessmentEntity?
 
+    @Query(
+        "UPDATE assessments SET explanation_why = :why, explanation_watch_for = :watchFor, " +
+            "explanation_reference = :reference, explanation_generated_at = :generatedAt WHERE id = :id"
+    )
+    suspend fun updateExplanation(id: Long, why: String, watchFor: String, reference: String, generatedAt: Long)
+
     @Query("SELECT COUNT(*) FROM assessments WHERE sync_status = 'PENDING'")
     fun getPendingCount(): Flow<Int>
 
