@@ -82,6 +82,8 @@ data class AssessmentUiState(
     val dangerSignCount: Int = 0,
     val assessmentStartMs: Long = 0L,
     val voiceInputState: VoiceInputState = VoiceInputState.Idle,
+    /** The vitals sheet was swiped away or dismissed with Back; vitals are still pending. */
+    val vitalsSheetHidden: Boolean = false,
 )
 
 @HiltViewModel
@@ -110,6 +112,7 @@ class AssessmentViewModel @Inject constructor(
     private val dangerSignCount = MutableStateFlow(0)
     private val assessmentStartMs = MutableStateFlow(0L)
     private val voiceInputState = MutableStateFlow<VoiceInputState>(VoiceInputState.Idle)
+    private val vitalsSheetHidden = MutableStateFlow(false)
 
     val cameraTier: StateFlow<CameraTier> =
         combine(selectedSymptoms, pathway, patientAge) { symptoms, currentPathway, age ->
@@ -152,7 +155,8 @@ class AssessmentViewModel @Inject constructor(
         currentRound,
         dangerSignCount,
         assessmentStartMs,
-        voiceInputState
+        voiceInputState,
+        vitalsSheetHidden
     ) { values: Array<Any?> ->
         AssessmentUiState(
             pathway = values[0] as Pathway,
@@ -174,7 +178,8 @@ class AssessmentViewModel @Inject constructor(
             currentRound = values[16] as Int,
             dangerSignCount = values[17] as Int,
             assessmentStartMs = values[18] as Long,
-            voiceInputState = values[19] as VoiceInputState
+            voiceInputState = values[19] as VoiceInputState,
+            vitalsSheetHidden = values[20] as Boolean
         )
     }.stateIn(viewModelScope, SharingStarted.Eagerly, AssessmentUiState())
 
@@ -303,6 +308,15 @@ class AssessmentViewModel @Inject constructor(
         vitalSignValues.value = current
     }
 
+    /** A mistaken swipe or Back only hides the sheet; it never skips vitals. */
+    fun hideVitalsSheet() {
+        if (awaitingVitals.value) vitalsSheetHidden.value = true
+    }
+
+    fun showVitalsSheet() {
+        vitalsSheetHidden.value = false
+    }
+
     fun runAssessment(onSuccess: (Long) -> Unit) {
         if (!canStartAssessment.value) return
 
@@ -311,6 +325,7 @@ class AssessmentViewModel @Inject constructor(
             isLoading.value = true
             error.value = null
             awaitingVitals.value = false
+            vitalsSheetHidden.value = false
             vitalSignValues.value = emptyMap()
             toolCallLog.value = emptyList()
             dangerSignCount.value = 0
@@ -346,6 +361,7 @@ class AssessmentViewModel @Inject constructor(
         viewModelScope.launch {
             isLoading.value = true
             awaitingVitals.value = false
+            vitalsSheetHidden.value = false
             error.value = null
 
             try {
@@ -369,6 +385,7 @@ class AssessmentViewModel @Inject constructor(
         viewModelScope.launch {
             isLoading.value = true
             awaitingVitals.value = false
+            vitalsSheetHidden.value = false
             error.value = null
             vitalSignValues.value = emptyMap()
 
@@ -392,6 +409,7 @@ class AssessmentViewModel @Inject constructor(
                 dangerSignCount.value = extractDangerSignCount(result.toolCallLog)
                 isLoading.value = false
                 awaitingVitals.value = true
+                vitalsSheetHidden.value = false
                 requiredVitals.value = result.requiredVitals ?: emptyList()
                 toolCallLog.value = result.toolCallLog
                 currentRound.value = result.currentRound
