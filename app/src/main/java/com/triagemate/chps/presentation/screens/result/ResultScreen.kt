@@ -145,6 +145,38 @@ private fun stepSummary(record: ToolCallRecord): String = when (record.toolName.
     else -> record.toolName
 }
 
+/** Who produced a step: the model's own decision, or TriageMate's built-in rules. */
+private enum class StepSource { AI, APP }
+
+private fun stepSource(record: ToolCallRecord): StepSource {
+    val tool = record.toolName.lowercase()
+    return when {
+        // Skipped calls are safety-rule decisions, whatever tool the model asked for.
+        tool.endsWith("_skipped") -> StepSource.APP
+        // Rule-based Kotlin check, whether the app or the model triggered it.
+        tool == "assesssymptoms" -> StepSource.APP
+        // Notes built from the template carry "source":"template"; older cases' notes were model-written.
+        tool == "generatereferralnote" ->
+            if (record.result?.contains("\"source\":\"template\"") == true) StepSource.APP else StepSource.AI
+        else -> StepSource.AI
+    }
+}
+
+@Composable
+private fun StepSourceChip(source: StepSource) {
+    val (label, bg, fg) = when (source) {
+        StepSource.AI -> Triple("AI", Color(0xFFE0F2F1), Color(0xFF00695C))
+        StepSource.APP -> Triple("App", Color(0xFFECEFF1), Color(0xFF455A64))
+    }
+    Box(
+        Modifier
+            .background(bg, RoundedCornerShape(4.dp))
+            .padding(horizontal = 6.dp, vertical = 1.dp)
+    ) {
+        Text(label, fontSize = 11.sp, fontWeight = FontWeight.Bold, color = fg)
+    }
+}
+
 private fun normalizedLabel(value: String): String = value.trim().lowercase()
 
 private fun isAutoRedDanger(pathway: String, dangerSigns: List<String>): Boolean {
@@ -192,7 +224,7 @@ private fun AssessmentStepsCard(
                 Icon(Icons.Outlined.PlaylistAddCheck, null, tint = PrimaryNavy, modifier = Modifier.size(20.dp))
                 Spacer(Modifier.width(8.dp))
                 Text(
-                    "Assessment Steps (${toolCallLog.size} rounds)",
+                    "How this result was reached (${toolCallLog.size} ${if (toolCallLog.size == 1) "step" else "steps"})",
                     fontWeight = FontWeight.Bold,
                     fontSize = 16.sp,
                     color = Color(0xFF2C3E50),
@@ -204,16 +236,24 @@ private fun AssessmentStepsCard(
                 )
             }
             if (expanded) {
-                Spacer(Modifier.height(12.dp))
-                toolCallLog.forEach { record ->
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "AI = decided by Gemma \u00b7 App = TriageMate's built-in rules",
+                    fontSize = 12.sp,
+                    color = Color(0xFF7F8C8D)
+                )
+                Spacer(Modifier.height(8.dp))
+                toolCallLog.forEachIndexed { index, record ->
                     Row(
                         Modifier.fillMaxWidth().padding(vertical = 6.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Box(Modifier.size(10.dp).clip(CircleShape).background(StepperTeal))
                         Spacer(Modifier.width(10.dp))
+                        StepSourceChip(stepSource(record))
+                        Spacer(Modifier.width(8.dp))
                         Text(
-                            text = "Round ${record.round}: ${record.toolName} \u2192 ${stepSummary(record)}",
+                            text = "${index + 1}. ${stepSummary(record)}",
                             fontSize = 13.sp,
                             color = Color(0xFF34495E),
                             lineHeight = 18.sp,
@@ -231,6 +271,8 @@ private fun AssessmentStepsCard(
                         ) {
                             Icon(Icons.Default.Shield, null, tint = Color(0xFFD97706), modifier = Modifier.size(14.dp))
                             Spacer(Modifier.width(8.dp))
+                            StepSourceChip(StepSource.APP)
+                            Spacer(Modifier.width(8.dp))
                             Text(
                                 text = "Safety override applied",
                                 fontSize = 13.sp,
@@ -243,7 +285,7 @@ private fun AssessmentStepsCard(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(
-                                text = "Gemma: ${safetyOverride.originalGemmaUrgency} \u2192 Override: RED — ${safetyOverride.overrideReason}",
+                                text = "Gemma: ${safetyOverride.originalGemmaUrgency} \u2192 Override: ${safetyOverride.finalUrgency} — ${safetyOverride.overrideReason}",
                                 fontSize = 12.sp,
                                 color = Color(0xFF6B7280),
                                 lineHeight = 17.sp
