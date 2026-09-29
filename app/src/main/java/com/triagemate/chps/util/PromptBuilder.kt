@@ -50,6 +50,7 @@ object PromptBuilder {
         - Fetal movements stopped
         - Prolonged labour (>24h)
         - Cord prolapse
+        - Severe abdominal pain
 
         In these cases, your tool call sequence MUST be:
         Round 1: classifyTriage (urgency=RED)
@@ -88,7 +89,7 @@ object PromptBuilder {
 
         ANTENATAL automatic RED danger signs: heavy vaginal bleeding, severe headache
         with visual disturbance, fits or convulsions, fetal movements stopped,
-        cord prolapse, prolonged labour >24 hours.
+        cord prolapse, prolonged labour >24 hours, severe abdominal pain.
     """.trimIndent()
 
     fun buildVisualPrompt(
@@ -150,6 +151,10 @@ object PromptBuilder {
         val sexDisplay = if (input.pathway == Pathway.ANTENATAL) "Female"
                          else input.patientSex.ifEmpty { "Not specified" }
 
+        val extrasLine = input.extras.forSymptoms(input.pathway, input.symptoms).summary()
+            ?.let { "Additional findings: $it" }
+            .orEmpty()
+
         val assessmentLine = assessment?.get("clinical_summary")
             ?.let { "Symptom assessment (already run by the app): $it" }
             .orEmpty()
@@ -161,6 +166,7 @@ object PromptBuilder {
             Patient sex: $sexDisplay
             Presenting symptoms: ${input.symptoms.joinToString(", ")}
             Current medications: ${input.medications.ifBlank { "None reported" }}
+            $extrasLine
             $assessmentLine
             $visualSection
             Please assess using the clinical tools.
@@ -211,6 +217,7 @@ object PromptBuilder {
                          else input.patientSex.ifEmpty { "Not specified" }
 
         val symptomsLine = input.symptoms.joinToString(", ").ifBlank { "None recorded" }
+        val findingsLine = input.extras.forSymptoms(input.pathway, input.symptoms).summary() ?: "None recorded"
         val dangerLine = result.dangerSignsDetected.joinToString(", ").ifBlank { "None recorded" }
         val vitalsLine = if (result.vitalSigns.isEmpty()) "Not collected"
                          else result.vitalSigns.entries.joinToString(", ") { "${it.key}: ${it.value}" }
@@ -232,6 +239,7 @@ object PromptBuilder {
             Pathway: $pathway
             Patient: $sexDisplay, $ageDisplay
             Reported symptoms: $symptomsLine
+            Additional findings: $findingsLine
             Confirmed danger signs: $dangerLine
             Vital signs: $vitalsLine
             Visual finding: $visualLine

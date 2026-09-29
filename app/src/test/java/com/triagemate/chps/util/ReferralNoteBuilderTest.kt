@@ -74,6 +74,17 @@ class ReferralNoteBuilderTest {
     }
 
     @Test
+    fun additionalFindings_appearBeforeMedications() {
+        val note = ReferralNoteBuilder.build(
+            pathway = Pathway.CHILD_U5, patientAge = "14", patientSex = "FEMALE",
+            symptoms = listOf("Diarrhoea"), dangerSigns = emptyList(), vitalSigns = null,
+            medications = "", urgency = "AMBER", action = "Refer.",
+            additionalFindings = "diarrhoea for 16 days; MUAC 112 mm"
+        )
+        assertTrue(note.contains("Additional findings: diarrhoea for 16 days; MUAC 112 mm\nCurrent medications: None reported"))
+    }
+
+    @Test
     fun placeholderAndDuplicateDangerSigns_areCleaned() {
         val note = childNote(dangerSigns = listOf("none", "Stridor", "stridor", " "))
         assertTrue(note.contains("Danger signs: Stridor\n"))

@@ -65,5 +65,8 @@ data class AssessmentEntity(
     @ColumnInfo(name = "explanation_reference")
     val explanationReference: String? = null,
     @ColumnInfo(name = "explanation_generated_at")
-    val explanationGeneratedAt: Long? = null
+    val explanationGeneratedAt: Long? = null,
+    /** JSON of [com.triagemate.chps.domain.model.AssessmentExtras]; null when none were recorded. */
+    @ColumnInfo(name = "extras_json")
+    val extrasJson: String? = null
 )

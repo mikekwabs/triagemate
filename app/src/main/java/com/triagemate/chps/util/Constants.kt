@@ -21,7 +21,9 @@ val AUTO_RED_ANTENATAL = setOf(
     "Vaginal bleeding",
     "Convulsions / fits",
     "Absent fetal movement",
-    "Prolonged labour (>24h)"
+    "Prolonged labour (>24h)",
+    // PCPNC danger sign (assessment additions, rule E4).
+    "Severe abdominal pain"
 )
 
 fun autoRedSignsFor(pathway: Pathway): Set<String> = when (pathway) {
@@ -49,7 +51,8 @@ object Constants {
         "Fast breathing / cough",
         "Diarrhoea",
         "Severe chest indrawing",
-        "Stridor"
+        "Stridor",
+        "Blood in stool"
     )
 
     // ── Antenatal symptoms (matching design order) ─────────────────
@@ -62,6 +65,8 @@ object Constants {
         "Difficulty breathing",
         "Swollen face, hands or feet",
         "High fever",
-        "Prolonged labour (>24h)"
+        "Prolonged labour (>24h)",
+        "Severe abdominal pain",
+        "Leaking fluid from the vagina"
     )
 }

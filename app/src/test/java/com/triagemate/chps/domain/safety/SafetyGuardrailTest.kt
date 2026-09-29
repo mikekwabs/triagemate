@@ -39,7 +39,8 @@ class SafetyGuardrailTest {
         assertEquals(
             setOf(
                 "Vaginal bleeding", "Convulsions / fits",
-                "Absent fetal movement", "Prolonged labour (>24h)"
+                "Absent fetal movement", "Prolonged labour (>24h)",
+                "Severe abdominal pain"
             ),
             AUTO_RED_ANTENATAL
         )
@@ -61,12 +62,14 @@ class SafetyGuardrailTest {
     }
 
     @Test
-    fun nonAutoRedChecklistLabels_neverOverride() {
+    fun nonAutoRedChecklistLabels_neverTriggerDangerSignOverride() {
+        // Some labels have their own AMBER assessment rule (e.g. "Blood in stool", D8), but no
+        // non-auto-RED label may ever trigger the danger-sign RED override.
         Pathway.entries.forEach { pathway ->
             (checklistFor(pathway) - autoRedSignsFor(pathway)).forEach { symptom ->
                 val result = SafetyGuardrail.apply("GREEN", listOf(symptom), pathway)
-                assertEquals("$pathway/$symptom", "GREEN", result.finalUrgency)
-                assertFalse(result.wasOverridden)
+                assertFalse("$pathway/$symptom", result.finalUrgency == "RED")
+                assertTrue("$pathway/$symptom", result.overriddenSigns.isEmpty())
             }
         }
     }
