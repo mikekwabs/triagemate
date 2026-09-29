@@ -2,6 +2,7 @@ package com.triagemate.chps.data.engine
 
 import android.app.ActivityManager
 import android.content.Context
+import android.os.SystemClock
 import android.util.Log
 import com.google.ai.edge.litertlm.Backend
 import com.google.ai.edge.litertlm.Engine
@@ -34,6 +35,14 @@ import javax.inject.Singleton
 class EngineProvider @Inject constructor(
     @ApplicationContext private val context: Context
 ) {
+    /** Durations from the most recent successful cold initialization. */
+    data class StartupTiming(
+        val engineCreationMs: Long,
+        val modelInitializationMs: Long,
+        val totalReadyMs: Long,
+        val backend: String
+    )
+
     companion object {
         private const val TAG = "EngineProvider"
 
@@ -52,6 +61,19 @@ class EngineProvider @Inject constructor(
     /** The backend that was successfully used to build the engine. */
     var activeBackend: String = "NONE"
         private set
+
+    /** Available after the engine and model have completed initialization. */
+    @Volatile
+    var lastStartupTiming: StartupTiming? = null
+        private set
+
+    private data class EngineBuildResult(
+        val wasBuilt: Boolean,
+        val durationMs: Long
+    )
+
+    private fun elapsedMs(startNanos: Long): Long =
+        (SystemClock.elapsedRealtimeNanos() - startNanos) / 1_000_000L
 
     /**
      * Returns total device RAM in megabytes.
@@ -90,19 +112,23 @@ class EngineProvider @Inject constructor(
      *  2. If GPU was picked but fails → silently fall back to CPU
      *  3. If CPU fails → report failure (should never happen)
      *
-     * Returns true if an engine was built (or already exists), false if the
-     * model file is not yet present on disk.
+     * Returns whether an engine was built (or already exists) together with
+     * the time spent creating it. A missing model file produces a failed result.
      */
     @OptIn(ExperimentalApi::class)
-    private fun tryBuildEngine(): Boolean {
-        if (_engine != null) return true
+    private fun tryBuildEngine(): EngineBuildResult {
+        if (_engine != null) return EngineBuildResult(wasBuilt = true, durationMs = 0L)
 
         val modelPath = context.getExternalFilesDir(null)!!.absolutePath +
                 "/" + Constants.MODEL_FILENAME
         val modelFile = File(modelPath)
-        if (!modelFile.exists()) return false
+        if (!modelFile.exists()) return EngineBuildResult(wasBuilt = false, durationMs = 0L)
         Log.i(TAG, "tryBuildEngine: model file size = ${modelFile.length()} bytes (${modelFile.length() / 1_000_000} MB) at $modelPath")
 
+        // Populates Conversation.getBenchmarkInfo() (TTFT, prefill/decode tok/s) for INFERENCE_TIMING logs.
+        ExperimentalFlags.enableBenchmark = true
+
+        val engineCreationStartedAt = SystemClock.elapsedRealtimeNanos()
         val preferredBackend = selectBackend()
         val enableGpuMtp = shouldEnableMtp(modelPath, preferredBackend)
 
@@ -125,8 +151,9 @@ class EngineProvider @Inject constructor(
                     )
                 )
                 activeBackend = "GPU"
-                Log.d(TAG, "tryBuildEngine: Engine built with GPU backend")
-                return true
+                val engineCreationMs = elapsedMs(engineCreationStartedAt)
+                Log.i(TAG, "STARTUP_TIMING engine_creation_ms=$engineCreationMs backend=$activeBackend")
+                return EngineBuildResult(wasBuilt = true, durationMs = engineCreationMs)
             } catch (gpuEx: Exception) {
                 Log.w(TAG, "tryBuildEngine: GPU failed (${gpuEx.message}) — falling back to CPU")
                 _engine = null
@@ -147,12 +174,18 @@ class EngineProvider @Inject constructor(
                 )
             )
             activeBackend = "CPU"
-            Log.d(TAG, "tryBuildEngine: Engine built with CPU backend")
-            true
+            val engineCreationMs = elapsedMs(engineCreationStartedAt)
+            Log.i(TAG, "STARTUP_TIMING engine_creation_ms=$engineCreationMs backend=$activeBackend")
+            EngineBuildResult(wasBuilt = true, durationMs = engineCreationMs)
         } catch (cpuEx: Exception) {
-            Log.e(TAG, "tryBuildEngine: CPU backend also failed: ${cpuEx.message}", cpuEx)
+            val engineCreationMs = elapsedMs(engineCreationStartedAt)
+            Log.e(
+                TAG,
+                "STARTUP_TIMING engine_creation_failed_after_ms=$engineCreationMs backend=CPU: ${cpuEx.message}",
+                cpuEx
+            )
             _engine = null
-            false
+            EngineBuildResult(wasBuilt = false, durationMs = engineCreationMs)
         }
     }
 
@@ -166,10 +199,39 @@ class EngineProvider @Inject constructor(
         return mutex.withLock {
             if (isInitialized) return@withLock true
             withContext(Dispatchers.IO) {
-                if (!tryBuildEngine()) return@withContext false
-                _engine!!.initialize()
+                val readyStartedAt = SystemClock.elapsedRealtimeNanos()
+                val buildResult = tryBuildEngine()
+                if (!buildResult.wasBuilt) return@withContext false
+
+                val modelInitializationStartedAt = SystemClock.elapsedRealtimeNanos()
+                try {
+                    _engine!!.initialize()
+                } catch (exception: Exception) {
+                    val modelInitializationMs = elapsedMs(modelInitializationStartedAt)
+                    Log.e(
+                        TAG,
+                        "STARTUP_TIMING model_initialization_failed_after_ms=$modelInitializationMs " +
+                            "backend=$activeBackend",
+                        exception
+                    )
+                    throw exception
+                }
+
+                val modelInitializationMs = elapsedMs(modelInitializationStartedAt)
+                val totalReadyMs = elapsedMs(readyStartedAt)
                 isInitialized = true
-                Log.d(TAG, "ensureEngineReady: Engine initialized on $activeBackend backend (RAM: ${getTotalRamMB()}MB)")
+                lastStartupTiming = StartupTiming(
+                    engineCreationMs = buildResult.durationMs,
+                    modelInitializationMs = modelInitializationMs,
+                    totalReadyMs = totalReadyMs,
+                    backend = activeBackend
+                )
+                Log.i(
+                    TAG,
+                    "STARTUP_TIMING model_initialization_ms=$modelInitializationMs " +
+                        "total_ready_ms=$totalReadyMs backend=$activeBackend " +
+                        "ram_mb=${getTotalRamMB()}"
+                )
                 true
             }
         }
