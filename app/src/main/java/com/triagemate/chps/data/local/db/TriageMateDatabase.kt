@@ -6,7 +6,7 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.triagemate.chps.data.local.model.AssessmentEntity
 
-@Database(entities = [AssessmentEntity::class], version = 8, exportSchema = true)
+@Database(entities = [AssessmentEntity::class], version = 9, exportSchema = true)
 abstract class TriageMateDatabase : RoomDatabase() {
     abstract fun assessmentDao(): AssessmentDao
 
@@ -26,6 +26,12 @@ abstract class TriageMateDatabase : RoomDatabase() {
                 db.execSQL("ALTER TABLE assessments ADD COLUMN explanation_watch_for TEXT")
                 db.execSQL("ALTER TABLE assessments ADD COLUMN explanation_reference TEXT")
                 db.execSQL("ALTER TABLE assessments ADD COLUMN explanation_generated_at INTEGER")
+            }
+        }
+
+        val MIGRATION_8_9 = object : Migration(8, 9) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE assessments ADD COLUMN extras_json TEXT")
             }
         }
     }

@@ -76,6 +76,7 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.triagemate.chps.domain.model.Pathway
 import com.triagemate.chps.presentation.components.ActivityLogCard
+import com.triagemate.chps.presentation.components.AssessmentExtrasSection
 import com.triagemate.chps.presentation.components.ClinicalPhotoCard
 import com.triagemate.chps.presentation.components.UrgentActionBanner
 import com.triagemate.chps.presentation.components.SymptomCheckItem
@@ -470,6 +471,17 @@ fun AssessmentScreen(
                                     label = symptom,
                                     checked = uiState.selectedSymptoms.contains(symptom),
                                     onCheckedChange = { viewModel.toggleSymptom(symptom) }
+                                )
+                            }
+
+                            item {
+                                AssessmentExtrasSection(
+                                    pathway = pathway,
+                                    selectedSymptoms = uiState.selectedSymptoms,
+                                    patientAgeMonths = uiState.patientAge.trim().toIntOrNull(),
+                                    form = uiState.extrasForm,
+                                    onChange = viewModel::updateExtras,
+                                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 16.dp)
                                 )
                             }
 

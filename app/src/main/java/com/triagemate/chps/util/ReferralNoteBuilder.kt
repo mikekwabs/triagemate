@@ -24,6 +24,7 @@ object ReferralNoteBuilder {
         urgency: String,
         action: String,
         safetyOverrideReason: String? = null,
+        additionalFindings: String? = null,
         originalModelUrgency: String? = null
     ): String {
         val normalizedUrgency = urgency.trim().uppercase()
@@ -33,6 +34,7 @@ object ReferralNoteBuilder {
             add("Presenting symptoms: ${symptoms.joinToString(", ").ifBlank { "None recorded" }}")
             add("Danger signs: ${cleanDangerSigns(dangerSigns).joinToString(", ").ifBlank { "None identified" }}")
             add("Vital signs: ${formatVitals(vitalSigns)}")
+            if (!additionalFindings.isNullOrBlank()) add("Additional findings: $additionalFindings")
             add("Current medications: ${medications.trim().ifBlank { "None reported" }}")
             add("Recommended action: ${action.trim().ifBlank { "Use clinical judgement." }}")
             if (!safetyOverrideReason.isNullOrBlank()) {

@@ -113,13 +113,15 @@ object VitalsValidator {
         if (value % 1.0 == 0.0) value.toInt().toString() else String.format(Locale.US, "%.1f", value)
 }
 
-data class VitalRuleHit(
-    /** Rule ID from the review document, e.g. "B1". */
+data class SafetyRuleHit(
+    /** Rule ID from the review documents, e.g. "B1" or "D6". */
     val ruleId: String,
     /** Minimum urgency the rule sets: "RED" or "AMBER". */
     val urgency: String,
     /** Plain-language finding, e.g. "SpO₂ 69% is below 90%". */
-    val finding: String
+    val finding: String,
+    /** Shown in the override reason: "Vital-sign rule B1" or "Assessment rule D6". */
+    val category: String = "Vital-sign"
 )
 
 /** Sections B (child under 5, WHO IMCI 2014) and C (antenatal, WHO 2011 / PCPNC 2015). */
@@ -133,7 +135,7 @@ object VitalSignRules {
         pathway: Pathway,
         vitalSigns: Map<String, String>,
         patientAgeMonths: Int?
-    ): List<VitalRuleHit> {
+    ): List<SafetyRuleHit> {
         val vitals = vitalSigns
             .filter { (k, v) -> v.isNotBlank() && VitalsValidator.error(k, v) == null }
             .mapKeys { VitalSigns.canonicalKey(it.key) }
@@ -143,23 +145,23 @@ object VitalSignRules {
         }
     }
 
-    private fun childRules(vitals: Map<String, String>, age: Int?): List<VitalRuleHit> = buildList {
+    private fun childRules(vitals: Map<String, String>, age: Int?): List<SafetyRuleHit> = buildList {
         vitals[VitalSigns.OXYGEN_SATURATION]?.let(VitalSigns::parseNumber)?.let { spo2 ->
-            if (spo2 < 90) add(VitalRuleHit("B1", "RED", "SpO₂ ${num(spo2)}% is below 90%"))
+            if (spo2 < 90) add(SafetyRuleHit("B1", "RED", "SpO₂ ${num(spo2)}% is below 90%"))
         }
 
         vitals[VitalSigns.RESPIRATORY_RATE]?.let(VitalSigns::parseNumber)?.let { rr ->
             val rate = "respiratory rate ${num(rr)}/min"
             when {
                 age == 0 && rr >= 60 ->
-                    add(VitalRuleHit("B2", "RED", "$rate is fast breathing (60 or more) in an infant under 1 month"))
+                    add(SafetyRuleHit("B2", "RED", "$rate is fast breathing (60 or more) in an infant under 1 month"))
                 age == 1 && rr >= 60 ->
-                    add(VitalRuleHit("B3", "AMBER", "$rate is fast breathing (60 or more) at 1 month"))
+                    add(SafetyRuleHit("B3", "AMBER", "$rate is fast breathing (60 or more) at 1 month"))
                 age != null && age in 2..11 && rr >= 50 ->
-                    add(VitalRuleHit("B4", "AMBER", "$rate is fast breathing (50 or more) at 2–11 months"))
+                    add(SafetyRuleHit("B4", "AMBER", "$rate is fast breathing (50 or more) at 2–11 months"))
                 (age == null || age >= 12) && rr >= 40 -> {
                     val band = if (age == null) "age not recorded" else "12–59 months"
-                    add(VitalRuleHit("B5", "AMBER", "$rate is fast breathing (40 or more, $band)"))
+                    add(SafetyRuleHit("B5", "AMBER", "$rate is fast breathing (40 or more, $band)"))
                 }
             }
         }
@@ -167,24 +169,24 @@ object VitalSignRules {
         if (age != null && age <= 1) {
             vitals[VitalSigns.TEMPERATURE]?.let(VitalSigns::parseNumber)?.let { temp ->
                 if (temp >= 37.5 || temp < 35.5) {
-                    add(VitalRuleHit("B6", "RED", "temperature ${num(temp)} °C in a young infant is outside 35.5–37.4 °C"))
+                    add(SafetyRuleHit("B6", "RED", "temperature ${num(temp)} °C in a young infant is outside 35.5–37.4 °C"))
                 }
             }
         }
     }
 
-    private fun antenatalRules(vitals: Map<String, String>): List<VitalRuleHit> = buildList {
+    private fun antenatalRules(vitals: Map<String, String>): List<SafetyRuleHit> = buildList {
         vitals[VitalSigns.BLOOD_PRESSURE]?.let(VitalSigns::parseBloodPressure)?.let { (s, d) ->
             val bp = "blood pressure $s/$d mmHg"
             when {
-                s >= 160 || d >= 110 -> add(VitalRuleHit("C1", "RED", "$bp is severe hypertension (160/110 or more)"))
-                s >= 140 || d >= 90 -> add(VitalRuleHit("C2", "AMBER", "$bp is hypertension in pregnancy (140/90 or more)"))
+                s >= 160 || d >= 110 -> add(SafetyRuleHit("C1", "RED", "$bp is severe hypertension (160/110 or more)"))
+                s >= 140 || d >= 90 -> add(SafetyRuleHit("C2", "AMBER", "$bp is hypertension in pregnancy (140/90 or more)"))
             }
-            if (s < 90) add(VitalRuleHit("C3", "RED", "systolic $s mmHg is below 90 (sign of shock)"))
+            if (s < 90) add(SafetyRuleHit("C3", "RED", "systolic $s mmHg is below 90 (sign of shock)"))
         }
 
         vitals[VitalSigns.OXYGEN_SATURATION]?.let(VitalSigns::parseNumber)?.let { spo2 ->
-            if (spo2 < 90) add(VitalRuleHit("C4", "RED", "SpO₂ ${num(spo2)}% is below 90%"))
+            if (spo2 < 90) add(SafetyRuleHit("C4", "RED", "SpO₂ ${num(spo2)}% is below 90%"))
         }
     }
 

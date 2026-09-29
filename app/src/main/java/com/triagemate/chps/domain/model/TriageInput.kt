@@ -11,5 +11,7 @@ data class TriageInput(
     val patientSex: String = "",
     val medications: String = "",
     val confirmedVisualFinding: VisualFinding? = null,
-    val assessmentDurationMillis: Long = 0L
+    val assessmentDurationMillis: Long = 0L,
+    /** Optional structured findings (symptom duration, RDT, MUAC, urine protein). */
+    val extras: AssessmentExtras = AssessmentExtras()
 )

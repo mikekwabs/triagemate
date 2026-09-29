@@ -7,6 +7,7 @@ import com.triagemate.chps.data.local.db.AssessmentDao
 import com.triagemate.chps.data.local.model.AssessmentEntity
 import com.triagemate.chps.data.local.prefs.CompoundPreferences
 import com.triagemate.chps.domain.model.AgenticTriageResult
+import com.triagemate.chps.domain.model.AssessmentExtras
 import com.triagemate.chps.domain.model.ClinicalExplanation
 import com.triagemate.chps.domain.model.ConfidenceLevel
 import com.triagemate.chps.domain.model.HistoryEntry
@@ -32,6 +33,7 @@ class AssessmentRepositoryImpl @Inject constructor(
         Types.newParameterizedType(List::class.java, String::class.java)
     )
     private val visualFindingAdapter = moshi.adapter(VisualFinding::class.java)
+    private val extrasAdapter = moshi.adapter(AssessmentExtras::class.java)
 
     override suspend fun saveAssessment(input: TriageInput, result: AgenticTriageResult): Long {
         val triage = result.triageResult ?: TriageResult(
@@ -69,7 +71,10 @@ class AssessmentRepositoryImpl @Inject constructor(
             safetyOverrideApplied = result.safetyOverride?.wasOverridden ?: false,
             safetyOverrideReason = result.safetyOverride?.overrideReason,
             originalGemmaUrgency = result.safetyOverride?.originalGemmaUrgency,
-            confidenceLevel = triage.confidence.name
+            confidenceLevel = triage.confidence.name,
+            extrasJson = input.extras.forSymptoms(input.pathway, input.symptoms)
+                .takeUnless { it.isEmpty }
+                ?.let(extrasAdapter::toJson)
         )
         return assessmentDao.insertAssessment(entity)
     }
@@ -182,7 +187,10 @@ class AssessmentRepositoryImpl @Inject constructor(
             patientSex = entity.patientSex,
             medications = "",
             confirmedVisualFinding = confirmedVisualFinding,
-            assessmentDurationMillis = entity.durationMillis
+            assessmentDurationMillis = entity.durationMillis,
+            extras = entity.extrasJson
+                ?.let { runCatching { extrasAdapter.fromJson(it) }.getOrNull() }
+                ?: AssessmentExtras()
         )
     }
 

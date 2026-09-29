@@ -17,6 +17,11 @@ import com.triagemate.chps.util.AudioRecorderManager
 import com.triagemate.chps.domain.usecase.RunTriageUseCase
 import com.triagemate.chps.domain.usecase.SaveAssessmentUseCase
 import com.triagemate.chps.domain.safety.VitalsValidator
+import com.triagemate.chps.domain.safety.AssessmentExtrasValidator
+import com.triagemate.chps.domain.model.AssessmentExtras
+import com.triagemate.chps.domain.model.ChecklistLabels
+import com.triagemate.chps.domain.model.RdtResult
+import com.triagemate.chps.domain.model.UrineProtein
 import com.triagemate.chps.util.CameraTier
 import com.triagemate.chps.util.ImageQualityChecker
 import com.triagemate.chps.util.VisualCue
@@ -84,7 +89,47 @@ data class AssessmentUiState(
     val voiceInputState: VoiceInputState = VoiceInputState.Idle,
     /** The vitals sheet was swiped away or dismissed with Back; vitals are still pending. */
     val vitalsSheetHidden: Boolean = false,
+    val extrasForm: ExtrasForm = ExtrasForm(),
 )
+
+/**
+ * Raw entry state for the optional additional findings. Text fields stay as typed so the
+ * validators can show errors; [toExtras] keeps only valid values. Only fields that are
+ * currently shown (ticked symptom, pathway) can block starting the assessment.
+ */
+data class ExtrasForm(
+    val feverDays: String = "",
+    val coughDays: String = "",
+    val diarrhoeaDays: String = "",
+    val malariaRdt: RdtResult? = null,
+    val oedemaBothFeet: Boolean? = null,
+    val muacMm: String = "",
+    val urineProtein: UrineProtein? = null
+) {
+    fun hasErrors(pathway: Pathway, symptoms: Set<String>): Boolean {
+        val isChild = pathway == Pathway.CHILD_U5
+        val dayFields = listOfNotNull(
+            feverDays.takeIf { ChecklistLabels.fever(pathway) in symptoms },
+            coughDays.takeIf { isChild && ChecklistLabels.COUGH in symptoms },
+            diarrhoeaDays.takeIf { isChild && ChecklistLabels.DIARRHOEA in symptoms }
+        )
+        return dayFields.any { AssessmentExtrasValidator.daysError(it) != null } ||
+            (isChild && AssessmentExtrasValidator.muacError(muacMm) != null)
+    }
+
+    fun toExtras(): AssessmentExtras = AssessmentExtras(
+        feverDays = feverDays.validDays(),
+        coughDays = coughDays.validDays(),
+        diarrhoeaDays = diarrhoeaDays.validDays(),
+        malariaRdt = malariaRdt,
+        oedemaBothFeet = oedemaBothFeet,
+        muacMm = muacMm.takeIf { it.isNotBlank() && AssessmentExtrasValidator.muacError(it) == null }?.trim()?.toInt(),
+        urineProtein = urineProtein
+    )
+
+    private fun String.validDays(): Int? =
+        takeIf { it.isNotBlank() && AssessmentExtrasValidator.daysError(it) == null }?.trim()?.toInt()
+}
 
 @HiltViewModel
 class AssessmentViewModel @Inject constructor(
@@ -113,6 +158,7 @@ class AssessmentViewModel @Inject constructor(
     private val assessmentStartMs = MutableStateFlow(0L)
     private val voiceInputState = MutableStateFlow<VoiceInputState>(VoiceInputState.Idle)
     private val vitalsSheetHidden = MutableStateFlow(false)
+    private val extrasForm = MutableStateFlow(ExtrasForm())
 
     val cameraTier: StateFlow<CameraTier> =
         combine(selectedSymptoms, pathway, patientAge) { symptoms, currentPathway, age ->
@@ -127,8 +173,9 @@ class AssessmentViewModel @Inject constructor(
     val visualAssessmentState: StateFlow<VisualAssessmentState> = visualAssessmentMutableState.asStateFlow()
 
     val canStartAssessment: StateFlow<Boolean> =
-        combine(selectedSymptoms, visualAssessmentMutableState) { symptoms, visualState ->
+        combine(selectedSymptoms, visualAssessmentMutableState, extrasForm, pathway) { symptoms, visualState, form, currentPathway ->
             symptoms.isNotEmpty() &&
+                !form.hasErrors(currentPathway, symptoms) &&
                 visualState !is VisualAssessmentState.QualityChecking &&
                 visualState !is VisualAssessmentState.Analysing &&
                 visualState !is VisualAssessmentState.FindingReady
@@ -156,7 +203,8 @@ class AssessmentViewModel @Inject constructor(
         dangerSignCount,
         assessmentStartMs,
         voiceInputState,
-        vitalsSheetHidden
+        vitalsSheetHidden,
+        extrasForm
     ) { values: Array<Any?> ->
         AssessmentUiState(
             pathway = values[0] as Pathway,
@@ -179,7 +227,8 @@ class AssessmentViewModel @Inject constructor(
             dangerSignCount = values[17] as Int,
             assessmentStartMs = values[18] as Long,
             voiceInputState = values[19] as VoiceInputState,
-            vitalsSheetHidden = values[20] as Boolean
+            vitalsSheetHidden = values[20] as Boolean,
+            extrasForm = values[21] as ExtrasForm
         )
     }.stateIn(viewModelScope, SharingStarted.Eagerly, AssessmentUiState())
 
@@ -202,6 +251,10 @@ class AssessmentViewModel @Inject constructor(
 
     fun updateSex(sex: String) {
         patientSex.value = sex
+    }
+
+    fun updateExtras(transform: (ExtrasForm) -> ExtrasForm) {
+        extrasForm.value = transform(extrasForm.value)
     }
 
     fun updateMedications(meds: String) {
@@ -341,7 +394,8 @@ class AssessmentViewModel @Inject constructor(
                 patientSex = patientSex.value,
                 medications = medications.value,
                 photoUri = capturedPhotoUri.value,
-                confirmedVisualFinding = confirmedFinding
+                confirmedVisualFinding = confirmedFinding,
+                extras = extrasForm.value.toExtras().forSymptoms(pathway.value, selectedSymptoms.value)
             )
             currentInput = input
 

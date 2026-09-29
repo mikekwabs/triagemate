@@ -31,6 +31,16 @@ class PromptBuilderTest {
     }
 
     @Test
+    fun userPrompt_includesAdditionalFindingsForTickedSymptomsOnly() {
+        val withExtras = input.copy(
+            extras = com.triagemate.chps.domain.model.AssessmentExtras(feverDays = 3, coughDays = 20, muacMm = 112)
+        )
+        val prompt = PromptBuilder.buildUserPrompt(withExtras)
+        assertTrue(prompt.contains("Additional findings: fever for 3 days; MUAC 112 mm"))
+        assertFalse(prompt.contains("cough for 20 days"))   // cough not ticked
+    }
+
+    @Test
     fun systemPrompt_neverAsksModelToCallRemovedTools() {
         val prompt = PromptBuilder.buildSystemPrompt()
         assertFalse(prompt.contains("calling assessSymptoms"))

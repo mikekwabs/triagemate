@@ -191,7 +191,7 @@ class VitalSignRulesTest {
         assertEquals("RED", result.finalUrgency)
         assertTrue(result.wasOverridden)
         assertEquals("GREEN", result.originalGemmaUrgency)
-        assertEquals(listOf("B1", "B5"), result.vitalRuleHits.map { it.ruleId })
+        assertEquals(listOf("B1", "B5"), result.ruleHits.map { it.ruleId })
         assertEquals(
             "Vital-sign rule B1: SpO₂ 69% is below 90%; " +
                 "Vital-sign rule B5: respiratory rate 69/min is fast breathing (40 or more, 12–59 months)",
@@ -214,7 +214,7 @@ class VitalSignRulesTest {
     fun rule_at_or_below_model_urgency_is_not_reported() {
         val result = SafetyGuardrail.apply("AMBER", listOf("Fever"), Pathway.CHILD_U5, mapOf("respiratory_rate" to "45"), 30)
         assertFalse(result.wasOverridden)
-        assertTrue(result.vitalRuleHits.isEmpty())
+        assertTrue(result.ruleHits.isEmpty())
     }
 
     @Test

@@ -792,7 +792,8 @@ class InferenceRepositoryImpl @Inject constructor(
             selectedSymptoms = input.symptoms,
             pathway = input.pathway,
             vitalSigns = collectedVitals.orEmpty(),
-            patientAgeMonths = if (input.pathway == Pathway.CHILD_U5) input.patientAge.trim().toIntOrNull() else null
+            patientAgeMonths = if (input.pathway == Pathway.CHILD_U5) input.patientAge.trim().toIntOrNull() else null,
+            extras = input.extras
         )
 
         // Built after the guardrail so the note always states the final urgency.
@@ -806,6 +807,7 @@ class InferenceRepositoryImpl @Inject constructor(
                     dangerSigns = clinicalToolSet.classifiedDangerSigns + safetyOverride.overriddenSigns,
                     vitalSigns = collectedVitals,
                     medications = input.medications,
+                    additionalFindings = input.extras.forSymptoms(input.pathway, input.symptoms).summary(),
                     urgency = safetyOverride.finalUrgency,
                     action = triageResult.action,
                     safetyOverrideReason = safetyOverride.overrideReason,
