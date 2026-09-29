@@ -54,9 +54,38 @@ class VitalSignRulesTest {
     fun a_non_numbers_are_blocked_blanks_are_allowed() {
         assertNotNull(VitalsValidator.error("pulse", "fast"))
         assertNull(VitalsValidator.error("pulse", ""))
-        assertNull(VitalsValidator.error("temperature", "38,5"))          // comma decimal accepted
         assertTrue(VitalsValidator.hasErrors(mapOf("pulse" to "90", "temperature" to "70")))
         assertFalse(VitalsValidator.hasErrors(mapOf("pulse" to "90", "temperature" to "")))
+    }
+
+    @Test
+    fun a_temperature_needs_dot_decimal_with_at_most_one_place() {
+        assertNull(VitalsValidator.error("temperature", "36.8"))
+        assertNull(VitalsValidator.error("temperature", "37"))
+        assertEquals("Use a dot for decimals, e.g. 36.8.", VitalsValidator.error("temperature", "36,8"))
+        assertNotNull(VitalsValidator.error("temperature", "36.85"))
+        assertNotNull(VitalsValidator.error("temperature", "36.8.1"))
+        assertNotNull(VitalsValidator.error("temperature", "36."))
+        assertNotNull(VitalsValidator.error("temperature", ".8"))
+        assertNotNull(VitalsValidator.error("temperature", "+38"))
+        assertNotNull(VitalsValidator.error("temperature", "3 8"))
+    }
+
+    @Test
+    fun a_special_number_strings_are_rejected() {
+        // toDoubleOrNull() accepts these; NaN would pass every range comparison.
+        listOf("NaN", "Infinity", "1e2", "-38").forEach { value ->
+            assertNotNull(value, VitalsValidator.error("temperature", value))
+            assertNotNull(value, VitalsValidator.error("oxygen_saturation", value))
+        }
+    }
+
+    @Test
+    fun a_counts_and_spo2_must_be_whole_numbers() {
+        assertNull(VitalsValidator.error("respiratory_rate", "40"))
+        assertEquals("Enter a whole number, e.g. 40.", VitalsValidator.error("respiratory_rate", "40.5"))
+        assertEquals("Enter a whole number, e.g. 100.", VitalsValidator.error("pulse", "100,0"))
+        assertEquals("Enter a whole number, e.g. 98.", VitalsValidator.error("oxygen_saturation", "97.5"))
     }
 
     @Test

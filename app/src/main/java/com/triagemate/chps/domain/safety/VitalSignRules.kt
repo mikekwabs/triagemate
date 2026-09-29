@@ -37,7 +37,16 @@ object VitalSigns {
         return ALIASES[snake] ?: snake
     }
 
-    fun parseNumber(raw: String): Double? = raw.trim().replace(',', '.').toDoubleOrNull()
+    // Strict formats. toDoubleOrNull() alone would accept "NaN", "Infinity" and "1e2"
+    // (NaN passes every range check), and a comma decimal is not accepted.
+    private val DECIMAL_ONE_PLACE = Regex("""^\d{1,3}(\.\d)?$""")
+    private val WHOLE_NUMBER = Regex("""^\d{1,3}$""")
+
+    /** Parses "36" or "36.8" (dot decimal, at most one place); anything else is null. */
+    fun parseNumber(raw: String): Double? =
+        raw.trim().takeIf { DECIMAL_ONE_PLACE.matches(it) }?.toDouble()
+
+    fun isWholeNumber(raw: String): Boolean = WHOLE_NUMBER.matches(raw.trim())
 
     private val BP_PATTERN = Regex("""^\s*(\d{1,3})\s*/\s*(\d{1,3})\s*$""")
 
@@ -53,10 +62,10 @@ object VitalsValidator {
     fun error(key: String, raw: String): String? {
         if (raw.isBlank()) return null
         return when (VitalSigns.canonicalKey(key)) {
-            VitalSigns.TEMPERATURE -> numberInRange(raw, 30.0, 45.0, "a temperature", "°C", "38.5")
-            VitalSigns.RESPIRATORY_RATE -> numberInRange(raw, 5.0, 150.0, "a respiratory rate", "breaths/min", "40")
-            VitalSigns.PULSE -> numberInRange(raw, 30.0, 250.0, "a pulse", "bpm", "100")
-            VitalSigns.OXYGEN_SATURATION -> numberInRange(raw, 40.0, 100.0, "an SpO₂", "%", "98")
+            VitalSigns.TEMPERATURE -> numberInRange(raw, 30.0, 45.0, "a temperature", "°C", "36.8", wholeOnly = false)
+            VitalSigns.RESPIRATORY_RATE -> numberInRange(raw, 5.0, 150.0, "a respiratory rate", "breaths/min", "40", wholeOnly = true)
+            VitalSigns.PULSE -> numberInRange(raw, 30.0, 250.0, "a pulse", "bpm", "100", wholeOnly = true)
+            VitalSigns.OXYGEN_SATURATION -> numberInRange(raw, 40.0, 100.0, "an SpO₂", "%", "98", wholeOnly = true)
             VitalSigns.BLOOD_PRESSURE -> bloodPressureError(raw)
             else -> null
         }
@@ -75,9 +84,13 @@ object VitalsValidator {
     }
 
     private fun numberInRange(
-        raw: String, min: Double, max: Double, what: String, unit: String, example: String
+        raw: String, min: Double, max: Double, what: String, unit: String, example: String,
+        wholeOnly: Boolean
     ): String? {
-        val value = VitalSigns.parseNumber(raw) ?: return "Enter a number, e.g. $example."
+        if (',' in raw) return if (wholeOnly) "Enter a whole number, e.g. $example." else "Use a dot for decimals, e.g. $example."
+        if (wholeOnly && !VitalSigns.isWholeNumber(raw)) return "Enter a whole number, e.g. $example."
+        val value = VitalSigns.parseNumber(raw)
+            ?: return if (wholeOnly) "Enter a whole number, e.g. $example." else "Enter a number with at most one decimal place, e.g. $example."
         return if (value < min || value > max) {
             "Enter $what between ${fmt(min)} and ${fmt(max)} $unit."
         } else {
