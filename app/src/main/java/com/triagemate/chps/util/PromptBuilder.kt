@@ -17,8 +17,9 @@ object PromptBuilder {
         complete assessment:
 
         WORKFLOW:
-        1. ALWAYS start by calling assessSymptoms with the patient data.
-        2. Based on the assessment result, decide if you need additional data:
+        1. The app has already run the symptom assessment. Its result (danger
+           signs, preliminary severity) is in the patient message. Do not repeat it.
+        2. Based on that assessment, decide if you need additional data:
            - Call requestVitalSigns only when vital signs are likely to change urgency, referral decisions, or confidence in the classification
            - If the patient is on medication, call checkDrugInteraction
         3. Once you have sufficient data, call classifyTriage for the final urgency classification.
@@ -51,8 +52,7 @@ object PromptBuilder {
         - Cord prolapse
 
         In these cases, your tool call sequence MUST be:
-        Round 1: assessSymptoms (confirm danger signs)
-        Round 2: classifyTriage (urgency=RED)
+        Round 1: classifyTriage (urgency=RED)
         STOP. Do not request vitals. Do not check medications.
 
         SEX-SPECIFIC CLINICAL GUIDANCE:
@@ -72,7 +72,7 @@ object PromptBuilder {
           28 weeks gestation.
 
         RULES:
-        - You MUST call at least assessSymptoms and classifyTriage.
+        - You MUST call classifyTriage.
         - classifyTriage MUST be your final tool call. Never call another tool after it.
         - Never respond with plain text. Always use tool calls.
         - Maximum 4 rounds of tool calls per assessment.
@@ -110,7 +110,11 @@ object PromptBuilder {
         4. Suggested addition to the referral note
     """.trimIndent()
 
-    fun buildUserPrompt(input: TriageInput): String {
+    /**
+     * @param assessment result of the app's pre-run [com.triagemate.chps.tools.ClinicalToolSet.assessSymptoms];
+     *  its one-line clinical summary replaces the model's former assessSymptoms round.
+     */
+    fun buildUserPrompt(input: TriageInput, assessment: Map<String, Any>? = null): String {
         val visualSection = when {
             input.confirmedVisualFinding != null -> when (input.confirmedVisualFinding.findingType) {
                 FindingType.ESCALATING -> """
@@ -146,6 +150,10 @@ object PromptBuilder {
         val sexDisplay = if (input.pathway == Pathway.ANTENATAL) "Female"
                          else input.patientSex.ifEmpty { "Not specified" }
 
+        val assessmentLine = assessment?.get("clinical_summary")
+            ?.let { "Symptom assessment (already run by the app): $it" }
+            .orEmpty()
+
         return """
             Patient assessment:
             Pathway: ${input.pathway.name}
@@ -153,6 +161,7 @@ object PromptBuilder {
             Patient sex: $sexDisplay
             Presenting symptoms: ${input.symptoms.joinToString(", ")}
             Current medications: ${input.medications.ifBlank { "None reported" }}
+            $assessmentLine
             $visualSection
             Please assess using the clinical tools.
         """.trimIndent()
