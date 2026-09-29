@@ -27,6 +27,7 @@ import com.triagemate.chps.domain.safety.SafetyOverrideResult
 import com.triagemate.chps.tools.ClinicalToolSet
 import com.triagemate.chps.util.PromptBuilder
 import com.triagemate.chps.util.VisualCue
+import com.triagemate.chps.util.isAutoRedSign
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -49,25 +50,6 @@ class InferenceRepositoryImpl @Inject constructor(
             "pulse",
             "blood_pressure",
             "oxygen_saturation"
-        )
-        private val AUTO_RED_CHILD = setOf(
-            "Unable to drink or breastfeed",
-            "Vomiting everything",
-            "Convulsions",
-            "Lethargic or unconscious",
-            "Stridor",
-            "Stridor at rest",
-            "Severe chest indrawing"
-        )
-        private val AUTO_RED_ANTENATAL = setOf(
-            "Vaginal bleeding",
-            "Heavy vaginal bleeding",
-            "Convulsions / fits",
-            "Fits or convulsions",
-            "Absent fetal movement",
-            "Fetal movements stopped",
-            "Prolonged labour (>24h)",
-            "Cord prolapse"
         )
     }
 
@@ -627,13 +609,8 @@ class InferenceRepositoryImpl @Inject constructor(
         return buildCompleteResult(suppliedVitals, input)
     }
 
-    private fun hasAutoRedSign(input: TriageInput): Boolean {
-        val autoRedSet = when (input.pathway) {
-            Pathway.CHILD_U5 -> AUTO_RED_CHILD
-            Pathway.ANTENATAL -> AUTO_RED_ANTENATAL
-        }
-        return input.symptoms.any { symptom -> autoRedSet.any { autoRed -> autoRed.equals(symptom, ignoreCase = true) } }
-    }
+    private fun hasAutoRedSign(input: TriageInput): Boolean =
+        input.symptoms.any { isAutoRedSign(it, input.pathway) }
 
     private fun buildVitalToolResponse(
         vitalSigns: Map<String, String>,

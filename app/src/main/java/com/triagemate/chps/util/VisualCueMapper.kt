@@ -29,27 +29,6 @@ sealed class CameraTier {
 
 object VisualCueMapper {
 
-    private val autoRedChild = setOf(
-        "Unable to drink or breastfeed",
-        "Vomiting everything",
-        "Convulsions",
-        "Lethargic or unconscious",
-        "Stridor",
-        "Stridor at rest",
-        "Severe chest indrawing"
-    )
-
-    private val autoRedAntenatal = setOf(
-        "Vaginal bleeding",
-        "Heavy vaginal bleeding",
-        "Convulsions / fits",
-        "Fits or convulsions",
-        "Absent fetal movement",
-        "Fetal movements stopped",
-        "Prolonged labour (>24h)",
-        "Cord prolapse"
-    )
-
     fun computeTier(
         selectedSymptoms: List<String>,
         pathway: Pathway,
@@ -57,7 +36,7 @@ object VisualCueMapper {
     ): CameraTier {
         val symptoms = selectedSymptoms.toSet()
 
-        if (hasAutoRedSign(symptoms, pathway)) {
+        if (symptoms.any { isAutoRedSign(it, pathway) }) {
             return CameraTier.SuppressCamera
         }
 
@@ -75,14 +54,6 @@ object VisualCueMapper {
     ): VisualCue? = when (val tier = computeTier(selectedSymptoms, pathway, patientAgeMonths)) {
         is CameraTier.StrongCue -> tier.cue
         else -> null
-    }
-
-    private fun hasAutoRedSign(symptoms: Set<String>, pathway: Pathway): Boolean {
-        val autoRedSet = when (pathway) {
-            Pathway.CHILD_U5 -> autoRedChild
-            Pathway.ANTENATAL -> autoRedAntenatal
-        }
-        return symptoms.any { it in autoRedSet }
     }
 
     private fun childStrongCue(symptoms: Set<String>, patientAgeMonths: Int?): VisualCue? {

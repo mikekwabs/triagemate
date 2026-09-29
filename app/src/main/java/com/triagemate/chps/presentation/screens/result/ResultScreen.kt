@@ -33,6 +33,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.triagemate.chps.domain.model.ConfidenceLevel
+import com.triagemate.chps.domain.model.Pathway
 import com.triagemate.chps.domain.model.ToolCallRecord
 import com.triagemate.chps.domain.model.VisualFinding
 import com.triagemate.chps.domain.safety.SafetyOverrideResult
@@ -40,6 +41,7 @@ import com.triagemate.chps.presentation.components.ConfidenceChip
 import com.triagemate.chps.presentation.components.LearnMoreCard
 import com.triagemate.chps.presentation.components.SafetyOverrideCard
 import com.triagemate.chps.presentation.theme.*
+import com.triagemate.chps.util.isAutoRedSign
 import org.json.JSONObject
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -146,28 +148,12 @@ private fun stepSummary(record: ToolCallRecord): String = when (record.toolName.
 private fun normalizedLabel(value: String): String = value.trim().lowercase()
 
 private fun isAutoRedDanger(pathway: String, dangerSigns: List<String>): Boolean {
-    val autoRedSigns = when (pathway.uppercase()) {
-        "ANTENATAL" -> setOf(
-            "vaginal bleeding",
-            "heavy vaginal bleeding",
-            "convulsions / fits",
-            "fits or convulsions",
-            "absent fetal movement",
-            "fetal movements stopped",
-            "prolonged labour (>24h)",
-            "cord prolapse"
-        )
-        else -> setOf(
-            "unable to drink or breastfeed",
-            "vomiting everything",
-            "convulsions",
-            "lethargic or unconscious",
-            "stridor",
-            "stridor at rest",
-            "severe chest indrawing"
-        )
+    val resolved = if (pathway.equals(Pathway.ANTENATAL.name, ignoreCase = true)) {
+        Pathway.ANTENATAL
+    } else {
+        Pathway.CHILD_U5
     }
-    return dangerSigns.any { normalizedLabel(it) in autoRedSigns }
+    return dangerSigns.any { isAutoRedSign(it, resolved) }
 }
 
 private fun clinicalConcernsFor(result: com.triagemate.chps.domain.model.TriageResult): List<String> {
