@@ -5,6 +5,8 @@ import com.google.ai.edge.litertlm.Tool
 import com.google.ai.edge.litertlm.ToolParam
 import com.google.ai.edge.litertlm.ToolSet
 import com.triagemate.chps.domain.model.ToolCallRecord
+import com.triagemate.chps.util.AUTO_RED_ANTENATAL
+import com.triagemate.chps.util.AUTO_RED_CHILD_U5
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -12,22 +14,12 @@ class ClinicalToolSet : ToolSet {
 
     companion object { private const val TAG = "ClinicalToolSet" }
 
-    private val childDangerSigns = setOf(
-        "unable to drink or breastfeed",
-        "vomiting everything",
-        "convulsions",
-        "lethargic or unconscious",
-        "stridor",
-        "severe chest indrawing"
-    )
+    private val childDangerSigns = AUTO_RED_CHILD_U5.map { it.lowercase() }.toSet()
 
-    private val antenatalDangerSigns = setOf(
-        "vaginal bleeding",
-        "convulsions / fits",
-        "absent fetal movement",
-        "blurred or lost vision",
-        "prolonged labour (>24h)"
-    )
+    // Reported to the model as a danger sign but deliberately NOT auto-RED:
+    // the guardrail does not force RED on visual disturbance alone.
+    private val antenatalDangerSigns =
+        (AUTO_RED_ANTENATAL + "Blurred or lost vision").map { it.lowercase() }.toSet()
 
     private val toolCallLogInternal = mutableListOf<ToolCallRecord>()
     private var roundInternal = 0

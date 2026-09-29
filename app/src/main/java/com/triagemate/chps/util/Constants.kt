@@ -2,25 +2,36 @@ package com.triagemate.chps.util
 
 import com.triagemate.chps.domain.model.Pathway
 
+/**
+ * Single source of truth for danger signs that force a RED referral regardless of
+ * the model's output. Every entry must be an exact label from the matching symptom
+ * checklist in [Constants] — the guardrail, the agentic loop, the camera cue logic
+ * and the UI all read from here. Enforced by AutoRedSignsTest.
+ */
 val AUTO_RED_CHILD_U5 = setOf(
     "Unable to drink or breastfeed",
     "Vomiting everything",
     "Convulsions",
     "Lethargic or unconscious",
-    "Stridor at rest",
-    "Severe chest indrawing"
+    "Severe chest indrawing",
+    "Stridor"
 )
 
 val AUTO_RED_ANTENATAL = setOf(
-    "Heavy vaginal bleeding",
-    "Fits or convulsions",
-    "Fetal movements stopped",
-    "Cord prolapse"
+    "Vaginal bleeding",
+    "Convulsions / fits",
+    "Absent fetal movement",
+    "Prolonged labour (>24h)"
 )
 
-fun isAutoRedSign(symptom: String, pathway: Pathway): Boolean = when (pathway) {
-    Pathway.CHILD_U5  -> symptom in AUTO_RED_CHILD_U5
-    Pathway.ANTENATAL -> symptom in AUTO_RED_ANTENATAL
+fun autoRedSignsFor(pathway: Pathway): Set<String> = when (pathway) {
+    Pathway.CHILD_U5  -> AUTO_RED_CHILD_U5
+    Pathway.ANTENATAL -> AUTO_RED_ANTENATAL
+}
+
+fun isAutoRedSign(symptom: String, pathway: Pathway): Boolean {
+    val normalized = symptom.trim()
+    return autoRedSignsFor(pathway).any { it.equals(normalized, ignoreCase = true) }
 }
 
 object Constants {

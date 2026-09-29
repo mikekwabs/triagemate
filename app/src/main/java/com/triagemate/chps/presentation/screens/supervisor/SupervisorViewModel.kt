@@ -9,6 +9,8 @@ import com.triagemate.chps.data.local.prefs.CompoundPreferences
 import com.triagemate.chps.data.local.prefs.CompoundProfile
 import com.triagemate.chps.data.sync.SyncEngine
 import com.triagemate.chps.data.sync.SyncResult
+import com.triagemate.chps.domain.model.Pathway
+import com.triagemate.chps.util.isAutoRedSign
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -244,30 +246,8 @@ class SupervisorViewModel @Inject constructor(
                 SymptomCount(
                     symptom = entry.key,
                     count = entry.value,
-                    isAutoRed = entry.key in autoRedChild || entry.key in autoRedAntenatal
+                    isAutoRed = Pathway.entries.any { isAutoRedSign(entry.key, it) }
                 )
             }
-    }
-
-    companion object {
-        // Exact strings from Constants.CHILD_U5_SYMPTOMS that are WHO IMCI auto-RED
-        private val autoRedChild = setOf(
-            "Unable to drink or breastfeed",
-            "Vomiting everything",
-            "Convulsions",
-            "Lethargic or unconscious",
-            "Severe chest indrawing",
-            "Stridor"
-        )
-
-        // Exact strings from Constants.ANTENATAL_SYMPTOMS that are GHS auto-RED
-        private val autoRedAntenatal = setOf(
-            "Vaginal bleeding",
-            "Convulsions / fits",
-            "Absent fetal movement",
-            "Blurred or lost vision",
-            "Severe headache",
-            "Prolonged labour (>24h)"
-        )
     }
 }
