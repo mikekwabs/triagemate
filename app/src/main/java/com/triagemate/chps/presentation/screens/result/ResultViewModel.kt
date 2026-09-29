@@ -69,12 +69,19 @@ class ResultViewModel @Inject constructor(
     private val _learnMoreState = MutableStateFlow<LearnMoreState>(LearnMoreState.Idle)
     val learnMoreState: StateFlow<LearnMoreState> = _learnMoreState.asStateFlow()
 
+    private val assessmentId: Long = savedStateHandle.get<Long>("id") ?: -1L
+
     init {
-        val id = savedStateHandle.get<Long>("id") ?: -1L
+        val id = assessmentId
         if (id != -1L) {
             viewModelScope.launch {
                 val result = assessmentRepository.getAssessmentById(id)
                 val input = assessmentRepository.getInputById(id)
+                // Reuse a previously generated explanation so reopening the case from
+                // history never triggers another model call.
+                assessmentRepository.getExplanationById(id)?.let {
+                    _learnMoreState.value = LearnMoreState.Ready(it)
+                }
                 _uiState.value = ResultUiState(result = result, input = input, isLoading = false)
             }
         } else {
@@ -84,8 +91,9 @@ class ResultViewModel @Inject constructor(
 
     /**
      * Fired ONLY when the CHO taps the "Learn about this case" card.
-     * Never auto-runs. Caches the result on first success so re-expanding
-     * the card is free.
+     * Never auto-runs. A successful model explanation is saved with the
+     * assessment, so re-expanding the card or reopening the case is free.
+     * Fallback text is not saved, so a later attempt can still reach the model.
      */
     fun loadClinicalExplanation() {
         if (_learnMoreState.value is LearnMoreState.Ready) return
@@ -109,6 +117,9 @@ class ResultViewModel @Inject constructor(
                     safetyOverride = safetyOverride.value
                 )
                 _learnMoreState.value = LearnMoreState.Ready(explanation)
+                if (!explanation.isFallback && assessmentId != -1L) {
+                    assessmentRepository.saveExplanation(assessmentId, explanation)
+                }
             } catch (e: Exception) {
                 _learnMoreState.value = LearnMoreState.Error(
                     e.message ?: "The explanation could not be generated."

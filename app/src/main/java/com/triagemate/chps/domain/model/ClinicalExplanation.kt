@@ -13,5 +13,7 @@ data class ClinicalExplanation(
     val whyThisClassification: String,
     val whatToWatchFor: String,
     val clinicalReference: String,
-    val generatedAt: Long = System.currentTimeMillis()
+    val generatedAt: Long = System.currentTimeMillis(),
+    /** True when the model failed and this is canned text; never persisted, so a later tap retries. */
+    val isFallback: Boolean = false
 )

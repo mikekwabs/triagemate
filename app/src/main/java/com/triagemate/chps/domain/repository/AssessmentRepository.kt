@@ -1,6 +1,7 @@
 package com.triagemate.chps.domain.repository
 
 import com.triagemate.chps.domain.model.AgenticTriageResult
+import com.triagemate.chps.domain.model.ClinicalExplanation
 import com.triagemate.chps.domain.model.HistoryEntry
 import com.triagemate.chps.domain.model.TriageInput
 import com.triagemate.chps.domain.model.TriageResult
@@ -15,6 +16,12 @@ interface AssessmentRepository {
      * rebuild context for an explanation prompt without re-running triage.
      */
     suspend fun getInputById(id: Long): TriageInput?
+
+    /** The "Learn about this case" explanation saved for this assessment, if one was generated. */
+    suspend fun getExplanationById(id: Long): ClinicalExplanation?
+
+    suspend fun saveExplanation(id: Long, explanation: ClinicalExplanation)
+
     fun getAssessmentHistory(): Flow<List<TriageResult>>
     fun getHistoryEntries(): Flow<List<HistoryEntry>>
     suspend fun deleteHistory()
