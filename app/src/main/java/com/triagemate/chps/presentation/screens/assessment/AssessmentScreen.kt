@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -196,9 +197,11 @@ fun AssessmentScreen(
 
     LaunchedEffect(pathway) { viewModel.initPathway(pathway) }
 
-    if (uiState.awaitingVitals) {
+    if (uiState.awaitingVitals && !uiState.vitalsSheetHidden) {
         ModalBottomSheet(
-            onDismissRequest = { },
+            // Swipe-down, Back or tapping outside only hides the sheet. Vitals stay pending
+            // and VitalsPendingCard reopens it; skipping is always an explicit button.
+            onDismissRequest = { viewModel.hideVitalsSheet() },
             sheetState = sheetState,
             containerColor = Color.White,
             shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
@@ -268,6 +271,14 @@ fun AssessmentScreen(
                         verticalArrangement = Arrangement.Bottom
                     ) {
                         Spacer(Modifier.weight(1f))
+                        if (uiState.awaitingVitals && uiState.vitalsSheetHidden) {
+                            VitalsPendingCard(
+                                enteredCount = uiState.vitalSignValues.values.count { it.isNotBlank() },
+                                onEnterVitals = { viewModel.showVitalsSheet() },
+                                onSkip = { viewModel.skipVitals(onResultReady) }
+                            )
+                            Spacer(Modifier.height(12.dp))
+                        }
                         ActivityLogCard(
                             uiState = uiState,
                             hasPhoto = uiState.capturedPhotoUri != null
@@ -606,6 +617,56 @@ private fun VisualCuePromptBanner(
                 fontSize = 12.sp,
                 lineHeight = 16.sp
             )
+        }
+    }
+}
+
+/**
+ * Shown when the vitals sheet was dismissed by mistake (swipe-down or Back). The assessment
+ * is still paused waiting for vitals; entered values are kept in the ViewModel.
+ */
+@Composable
+private fun VitalsPendingCard(
+    enteredCount: Int,
+    onEnterVitals: () -> Unit,
+    onSkip: () -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFFFFF8E1)),
+        border = BorderStroke(1.dp, Color(0xFFFFE082))
+    ) {
+        Column(Modifier.padding(16.dp)) {
+            Text(
+                "Vital signs needed",
+                fontWeight = FontWeight.Bold,
+                fontSize = 16.sp,
+                color = Color(0xFF5D4037)
+            )
+            Spacer(Modifier.height(4.dp))
+            Text(
+                text = if (enteredCount > 0) {
+                    "The assessment is paused. Your $enteredCount entered value${if (enteredCount == 1) " is" else "s are"} kept."
+                } else {
+                    "The assessment is paused until you enter vital signs or skip them."
+                },
+                fontSize = 13.sp,
+                lineHeight = 19.sp,
+                color = Color(0xFF6D4C41)
+            )
+            Spacer(Modifier.height(12.dp))
+            Button(
+                onClick = onEnterVitals,
+                modifier = Modifier.fillMaxWidth().height(48.dp),
+                shape = RoundedCornerShape(24.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = PrimaryNavy)
+            ) {
+                Text("Enter vital signs", fontWeight = FontWeight.SemiBold)
+            }
+            TextButton(onClick = onSkip, modifier = Modifier.fillMaxWidth()) {
+                Text("Skip and continue without vitals", color = Color(0xFF7F8C8D), fontSize = 13.sp)
+            }
         }
     }
 }
