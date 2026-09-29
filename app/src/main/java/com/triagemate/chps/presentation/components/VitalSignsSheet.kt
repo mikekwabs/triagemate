@@ -18,6 +18,11 @@ import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
@@ -28,6 +33,9 @@ import com.triagemate.chps.presentation.theme.PrimaryNavy
 import com.triagemate.chps.domain.safety.VitalSigns
 import com.triagemate.chps.domain.safety.VitalsValidator
 import com.triagemate.chps.presentation.theme.StepperTeal
+import kotlinx.coroutines.delay
+
+private const val ERROR_DISPLAY_DELAY_MS = 600L
 
 private data class VitalMeta(val label: String, val unit: String, val placeholder: String)
 
@@ -94,6 +102,19 @@ fun VitalSignsSheet(
             val meta = vitalMeta(normalizedKey)
             val currentValue = vitalValues[normalizedKey] ?: ""
             val fieldError = VitalsValidator.error(normalizedKey, currentValue)
+            val hint = VitalsValidator.rangeHint(normalizedKey)
+
+            // Values are invalid mid-typing ("3" on the way to "38.5"), so only show an error
+            // once typing pauses; clear it as soon as the value is valid.
+            var shownError by remember(normalizedKey) { mutableStateOf<String?>(null) }
+            LaunchedEffect(normalizedKey, fieldError) {
+                if (fieldError == null) {
+                    shownError = null
+                } else {
+                    delay(ERROR_DISPLAY_DELAY_MS)
+                    shownError = fieldError
+                }
+            }
 
             Text(
                 text = meta.label,
@@ -106,8 +127,14 @@ fun VitalSignsSheet(
                 value = currentValue,
                 onValueChange = { onVitalChanged(normalizedKey, it) },
                 placeholder = { Text(meta.placeholder, color = Color(0xFFBDC3C7)) },
-                isError = fieldError != null,
-                supportingText = fieldError?.let { message -> { Text(message) } },
+                isError = shownError != null,
+                // Always present (hint, then error in the same slot) so the field height never
+                // changes while typing; a height change re-laid out the whole bottom sheet.
+                supportingText = if (hint != null || shownError != null) {
+                    { Text(shownError ?: hint.orEmpty()) }
+                } else {
+                    null
+                },
                 suffix = {
                     if (meta.unit.isNotEmpty()) {
                         Text(meta.unit, color = Color(0xFF95A5A6), fontSize = 13.sp)

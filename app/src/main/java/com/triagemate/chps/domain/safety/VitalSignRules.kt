@@ -64,6 +64,16 @@ object VitalsValidator {
 
     fun hasErrors(values: Map<String, String>): Boolean = values.any { (k, v) -> error(k, v) != null }
 
+    /** Accepted range shown under the field before any error, or null for vitals without a range. */
+    fun rangeHint(key: String): String? = when (VitalSigns.canonicalKey(key)) {
+        VitalSigns.TEMPERATURE -> "30–45 °C"
+        VitalSigns.RESPIRATORY_RATE -> "5–150 breaths/min"
+        VitalSigns.PULSE -> "30–250 bpm"
+        VitalSigns.OXYGEN_SATURATION -> "40–100 %"
+        VitalSigns.BLOOD_PRESSURE -> "systolic/diastolic, e.g. 120/80 mmHg"
+        else -> null
+    }
+
     private fun numberInRange(
         raw: String, min: Double, max: Double, what: String, unit: String, example: String
     ): String? {
