@@ -212,7 +212,7 @@ object PromptBuilder {
         val overrideLine = if (safetyOverride?.wasOverridden == true) {
             "Safety guardrail OVERRODE the model. Model originally said " +
                 "${safetyOverride.originalGemmaUrgency}; the app forced ${safetyOverride.finalUrgency} " +
-                "because of: ${safetyOverride.overriddenSigns.joinToString(", ")}. " +
+                "because of: ${safetyOverride.overrideReason ?: safetyOverride.overriddenSigns.joinToString(", ")}. " +
                 "Acknowledge this honestly in whyThisClassification."
         } else {
             "No safety override was applied."

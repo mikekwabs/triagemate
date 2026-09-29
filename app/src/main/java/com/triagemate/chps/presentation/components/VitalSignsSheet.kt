@@ -25,6 +25,8 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.triagemate.chps.presentation.theme.PrimaryNavy
+import com.triagemate.chps.domain.safety.VitalSigns
+import com.triagemate.chps.domain.safety.VitalsValidator
 import com.triagemate.chps.presentation.theme.StepperTeal
 
 private data class VitalMeta(val label: String, val unit: String, val placeholder: String)
@@ -35,7 +37,7 @@ private fun normalizeVitalKey(key: String): String = key.trim()
     .replace("-", "_")
     .lowercase()
 
-private fun vitalMeta(key: String): VitalMeta = when (normalizeVitalKey(key)) {
+private fun vitalMeta(key: String): VitalMeta = when (VitalSigns.canonicalKey(key)) {
     "temperature" -> VitalMeta("Temperature", "°C", "e.g. 38.5")
     "respiratory_rate" -> VitalMeta("Respiratory Rate", "breaths/min", "e.g. 40")
     "pulse" -> VitalMeta("Pulse Rate", "bpm", "e.g. 100")
@@ -91,6 +93,7 @@ fun VitalSignsSheet(
             val normalizedKey = normalizeVitalKey(vitalKey)
             val meta = vitalMeta(normalizedKey)
             val currentValue = vitalValues[normalizedKey] ?: ""
+            val fieldError = VitalsValidator.error(normalizedKey, currentValue)
 
             Text(
                 text = meta.label,
@@ -103,6 +106,8 @@ fun VitalSignsSheet(
                 value = currentValue,
                 onValueChange = { onVitalChanged(normalizedKey, it) },
                 placeholder = { Text(meta.placeholder, color = Color(0xFFBDC3C7)) },
+                isError = fieldError != null,
+                supportingText = fieldError?.let { message -> { Text(message) } },
                 suffix = {
                     if (meta.unit.isNotEmpty()) {
                         Text(meta.unit, color = Color(0xFF95A5A6), fontSize = 13.sp)
@@ -134,7 +139,8 @@ fun VitalSignsSheet(
                 .height(52.dp),
             shape = RoundedCornerShape(26.dp),
             colors = ButtonDefaults.buttonColors(containerColor = PrimaryNavy),
-            enabled = vitalValues.values.any { it.isNotBlank() }
+            // Hard block: implausible readings must be corrected before triage continues.
+            enabled = vitalValues.values.any { it.isNotBlank() } && !VitalsValidator.hasErrors(vitalValues)
         ) {
             Text("Submit Vitals", fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
         }

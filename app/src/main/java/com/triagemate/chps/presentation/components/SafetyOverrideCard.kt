@@ -64,8 +64,8 @@ fun SafetyOverrideCard(override: SafetyOverrideResult) {
             )
             Text(
                 text = "Gemma initially classified this case as ${override.originalGemmaUrgency}. " +
-                    "A WHO danger sign was detected (${override.overriddenSigns.joinToString(", ")}) — " +
-                    "TriageMate overrode to RED to protect patient safety.",
+                    (override.overrideReason?.let { "$it. " } ?: "") +
+                    "TriageMate raised it to ${override.finalUrgency} to protect patient safety.",
                 color = Color(0xFF92400E),
                 fontSize = 13.sp,
                 lineHeight = 20.sp

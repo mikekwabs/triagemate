@@ -796,7 +796,9 @@ class InferenceRepositoryImpl @Inject constructor(
         val safetyOverride = SafetyGuardrail.apply(
             gemmaUrgency = triageResult.urgency,
             selectedSymptoms = input.symptoms,
-            pathway = input.pathway
+            pathway = input.pathway,
+            vitalSigns = collectedVitals.orEmpty(),
+            patientAgeMonths = if (input.pathway == Pathway.CHILD_U5) input.patientAge.trim().toIntOrNull() else null
         )
 
         // Built after the guardrail so the note always states the final urgency.
